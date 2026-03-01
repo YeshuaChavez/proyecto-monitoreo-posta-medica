@@ -296,7 +296,7 @@ const SelectorPaciente = ({ onPacienteSeleccionado, pacienteActual }: Props) => 
                 }}>
                   <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0, marginTop: 1 }} />
                   <div style={{ fontSize: 11, color: "#f59e0b", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.6 }}>
-                    El sistema se reiniciará. Historial anterior conservado. En el siguiente paso se te pedirá retirar la bolsa antes de calibrar.
+                    El sistema se reiniciará. En el siguiente paso se te pedirá retirar la bolsa antes de calibrar.
                   </div>
                 </div>
                 {error && (
