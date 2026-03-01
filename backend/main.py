@@ -202,6 +202,58 @@ def get_suero_rango(desde: str, hasta: str):
     finally:
         db.close()
 
+from sqlalchemy import Integer, func
+
+@app.get("/suero/por-minuto")
+def get_suero_por_minuto(limit: int = 60, db: Session = Depends(get_db)):
+    rows = (
+        db.query(
+            func.date_format(Suero.timestamp, "%Y-%m-%d %H:%i").label("minuto"),
+            func.avg(Suero.peso).label("peso"),
+            func.max(Suero.bomba.cast(Integer)).label("bomba"),
+            func.max(Suero.estado_suero).label("estado_suero"),
+        )
+        .group_by("minuto")
+        .order_by("minuto")
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "time":        row.minuto[-5:],        # HH:MM
+            "timestamp":   row.minuto,
+            "peso":        round(float(row.peso), 1),
+            "bomba":       bool(row.bomba),
+            "estado_suero": row.estado_suero or "NORMAL",
+        }
+        for row in rows
+    ]
+
+@app.get("/vitales/por-minuto")
+def get_vitales_por_minuto(limit: int = 60, db: Session = Depends(get_db)):
+    rows = (
+        db.query(
+            func.date_format(Vitales.timestamp, "%Y-%m-%d %H:%i").label("minuto"),
+            func.avg(Vitales.fc).label("fc"),
+            func.avg(Vitales.spo2).label("spo2"),
+            func.max(Vitales.estado_vitales).label("estado_vitales"),
+        )
+        .filter(Vitales.fc > 0, Vitales.spo2 > 0)   # ← ignora lecturas sin dedo
+        .group_by("minuto")
+        .order_by("minuto")
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "time":          row.minuto[-5:],
+            "timestamp":     row.minuto,
+            "fc":            round(float(row.fc)),
+            "spo2":          round(float(row.spo2), 1),
+            "estado_vitales": row.estado_vitales or "NORMAL",
+        }
+        for row in rows
+    ]
 
 # ═══════════════════════════════════════════════════════════════
 #  REST — VITALES
@@ -296,38 +348,28 @@ class EmailRequest(BaseModel):
     paciente_id:  int | None = None
 
 @app.post("/enviar-email")
-async def endpoint_email(req: EmailRequest, db: Session = Depends(get_db)):
-    paciente = db.query(Paciente).filter(Paciente.id == req.paciente_id).first() if req.paciente_id else None
+async def enviar_email_endpoint(body: EmailRequest):
+    from email_service import enviar_email_familiar
     
-    # Resolver nombre del doctor manualmente
-    nombre_doctor = ""
-    if paciente and paciente.doctor_id:
-        usuario = db.query(Usuario).filter(Usuario.id == paciente.doctor_id).first()
-        nombre_doctor = usuario.nombre if usuario else ""
-
-    paciente_dict = {
-        "nombre":            paciente.nombre,
-        "apellido":          paciente.apellido,
-        "codigo":            paciente.codigo,
-        "id":                paciente.id,
-        "doctor":            nombre_doctor,   # ← resuelto manualmente
-        "grupo_sanguineo":   paciente.grupo_sanguineo,
-        "fecha_ingreso":     paciente.fecha_ingreso,
-        "contacto_nombre":   paciente.contacto_nombre,
-        "contacto_telefono": paciente.contacto_telefono,
-        "contacto_relacion": paciente.contacto_relacion,
-    } if paciente else None
-
+    # Obtener paciente activo de la BD
+    db = SessionLocal()
     try:
-        await enviar_email_familiar(
-            payload      = req.payload,
-            alertas      = req.alertas,
-            destinatario = req.destinatario,
-            paciente     = paciente_dict,
-        )
-        return {"ok": True, "mensaje": f"Email enviado a {req.destinatario}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        cfg = db.query(Config).order_by(Config.id.desc()).first()
+        paciente = None
+        if cfg and cfg.paciente_activo_id:
+            p = db.query(Paciente).filter(Paciente.id == cfg.paciente_activo_id).first()
+            if p:
+                paciente = p.to_dict()
+    finally:
+        db.close()
+    
+    await enviar_email_familiar(
+        payload      = body.payload,
+        alertas      = body.alertas,
+        destinatario = body.destinatario,
+        paciente     = paciente,          # ← esto faltaba
+    )
+    return {"ok": True, "destinatario": body.destinatario}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -433,7 +475,7 @@ class PacienteRequest(BaseModel):
     nombre:            str
     apellido:          str
     codigo:            str | None = None
-    doctor_id:         int | None = None
+    doctor:            str = ""          
     grupo_sanguineo:   str = ""
     fecha_nacimiento:  str = ""
     fecha_ingreso:     str = ""
@@ -472,7 +514,7 @@ def crear_paciente(body: PacienteRequest):
             nombre            = body.nombre,
             apellido          = body.apellido,
             codigo            = body.codigo,
-            doctor_id         = body.doctor_id,   # ← cambio
+            doctor            = body.doctor,   # ← cambio
             grupo_sanguineo   = body.grupo_sanguineo,
             fecha_nacimiento  = body.fecha_nacimiento,
             fecha_ingreso     = body.fecha_ingreso,
@@ -506,7 +548,7 @@ def actualizar_paciente(paciente_id: int, body: PacienteRequest):
         p.nombre            = body.nombre
         p.apellido          = body.apellido
         p.codigo            = body.codigo
-        p.doctor_id         = body.doctor_id    # ← cambio
+        p.doctor            = body.doctor    # ← cambio
         p.grupo_sanguineo   = body.grupo_sanguineo
         p.fecha_nacimiento  = body.fecha_nacimiento
         p.fecha_ingreso     = body.fecha_ingreso

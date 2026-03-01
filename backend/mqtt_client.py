@@ -16,10 +16,8 @@ import aiomqtt
 from database import SessionLocal
 from models import Suero, Vitales, Alerta
 from telegram_bot import enviar_alerta, construir_mensaje
-
 from database import get_config
 
-# ── Credenciales HiveMQ ───────────────────────────────────────
 MQTT_HOST   = os.environ.get("MQTT_HOST",   "fd3a3baad98a46c3a2a0caabe973c4b3.s1.eu.hivemq.cloud")
 MQTT_PORT   = int(os.environ.get("MQTT_PORT", "8883"))
 MQTT_USER   = os.environ.get("MQTT_USER",   "esp32_cama04")
@@ -31,16 +29,12 @@ TOPIC_VITALES  = "posta/consultorio/vitales"
 TOPIC_COMANDOS = "posta/consultorio/comandos"
 TOPIC_CONFIG   = "posta/consultorio/config"
 
-# ── Umbrales alertas ──────────────────────────────────────────
 UMBRAL_FC_ALTA = 100
 UMBRAL_FC_BAJA = 60
 UMBRAL_SPO2    = 95
 
-# ── Anti-spam Telegram ────────────────────────────────────────
 INTERVALO_TELEGRAM = 15
-
-# ── Estados donde NO se generan alertas ──────────────────────
-ESTADOS_INACTIVOS = {"INICIANDO", "ESPERANDO"}
+ESTADOS_INACTIVOS  = {"INICIANDO", "ESPERANDO"}
 
 
 class MQTTManager:
@@ -59,8 +53,15 @@ class MQTTManager:
             "spo2":           0,
             "estado_vitales": "MIDIENDO",
         }
-        self.ultimo_origen: str  = "automatico"
+        self.ultimo_origen: str      = "automatico"
         self._paciente_activo: dict | None = None
+        self._alerta_suero_activa    = False
+
+    # ── Helper: obtener paciente_id activo ───────────────────
+    def _get_paciente_id(self) -> int | None:
+        if self._paciente_activo:
+            return self._paciente_activo.get("id")
+        return None
 
     # ── Guardar en tabla suero ────────────────────────────────
     def _guardar_suero(self, peso: float, bomba: bool, estado_suero: str) -> Suero:
@@ -68,6 +69,7 @@ class MQTTManager:
         try:
             registro = Suero(
                 timestamp      = datetime.utcnow() - timedelta(hours=5),
+                paciente_id    = self._get_paciente_id(),   # ← FIX
                 peso           = peso,
                 bomba          = bomba,
                 estado_suero   = estado_suero,
@@ -88,6 +90,7 @@ class MQTTManager:
         try:
             registro = Vitales(
                 timestamp      = datetime.utcnow() - timedelta(hours=5),
+                paciente_id    = self._get_paciente_id(),   # ← FIX
                 fc             = fc,
                 spo2           = spo2,
                 estado_vitales = estado_vitales,
@@ -101,75 +104,89 @@ class MQTTManager:
 
     # ── Alertas de suero ──────────────────────────────────────
     def _alertas_suero(self, peso: float, bomba: bool, estado_suero: str) -> list:
-        # No generar alertas si el sistema está esperando bolsa
         if estado_suero in ESTADOS_INACTIVOS:
-            print(f"⏸️  Alertas suero omitidas — estado: {estado_suero}")
             return []
 
-        cfg = get_config()
+        cfg            = get_config()
         umbral_alerta  = cfg["peso_alerta"]
         umbral_critico = cfg["peso_critico"]
+
+        if peso > umbral_alerta:
+            if self._alerta_suero_activa:
+                print(f"✅ Suero recuperado ({peso:.1f}g) — alertas desactivadas")
+                self._alerta_suero_activa = False
+            return []
+
+        if self._alerta_suero_activa:
+            return []
+
+        paciente_id = self._get_paciente_id()   # ← FIX
 
         db = SessionLocal()
         try:
             alertas = []
             if peso <= umbral_critico:
                 alertas.append(Alerta(
-                    tipo    = "SUERO_CRITICO",
-                    mensaje = f"Nivel crítico de suero: {peso:.1f}g — bomba activada (umbral: {umbral_critico}g)",
-                    valor   = peso,
+                    tipo        = "SUERO_CRITICO",
+                    mensaje     = f"Nivel crítico de suero: {peso:.1f}g — bomba activada (umbral: {umbral_critico}g)",
+                    valor       = peso,
+                    paciente_id = paciente_id,   # ← FIX
                 ))
             elif peso <= umbral_alerta:
                 alertas.append(Alerta(
-                    tipo    = "SUERO_BAJO",
-                    mensaje = f"Nivel bajo de suero: {peso:.1f}g (umbral alerta: {umbral_alerta}g)",
-                    valor   = peso,
+                    tipo        = "SUERO_BAJO",
+                    mensaje     = f"Nivel bajo de suero: {peso:.1f}g (umbral alerta: {umbral_alerta}g)",
+                    valor       = peso,
+                    paciente_id = paciente_id,   # ← FIX
                 ))
             if bomba:
                 alertas.append(Alerta(
-                    tipo    = "BOMBA_ON",
-                    mensaje = "Bomba peristáltica activada — recargando suero",
-                    valor   = None,
+                    tipo        = "BOMBA_ON",
+                    mensaje     = "Bomba peristáltica activada — recargando suero",
+                    valor       = None,
+                    paciente_id = paciente_id,   # ← FIX
                 ))
             for a in alertas:
                 db.add(a)
             if alertas:
                 db.commit()
+                self._alerta_suero_activa = True
             return [a.to_dict() for a in alertas]
         finally:
             db.close()
 
     # ── Alertas de vitales ────────────────────────────────────
     def _alertas_vitales(self, fc: int, spo2: int) -> list:
-        # No generar alertas si el suero no está activo todavía
         if self._ultimo_suero.get("estado_suero") in ESTADOS_INACTIVOS:
-            print(f"⏸️  Alertas vitales omitidas — suero: {self._ultimo_suero.get('estado_suero')}")
             return []
-
-        # No generar alertas con valores inválidos (sin dedo en sensor)
         if fc == 0 and spo2 == 0:
             return []
+
+        paciente_id = self._get_paciente_id()   # ← FIX
 
         db = SessionLocal()
         try:
             alertas = []
             if fc and fc > UMBRAL_FC_ALTA:
                 alertas.append(Alerta(
-                    tipo    = "FC_ALTA",
-                    mensaje = f"Taquicardia: {fc} bpm (normal: 60-100)",
-                    valor   = fc,
+                    tipo        = "FC_ALTA",
+                    mensaje     = f"Taquicardia: {fc} bpm (normal: 60-100)",
+                    valor       = fc,
+                    paciente_id = paciente_id,   # ← FIX
                 ))
             elif fc and 0 < fc < UMBRAL_FC_BAJA:
                 alertas.append(Alerta(
-                    tipo    = "FC_BAJA",
-                    mensaje = f"Bradicardia: {fc} bpm (normal: 60-100)",
-                    valor   = fc,
+                    tipo        = "FC_BAJA",
+                    mensaje     = f"Bradicardia: {fc} bpm (normal: 60-100)",
+                    valor       = fc,
+                    paciente_id = paciente_id,   # ← FIX
                 ))
             if spo2 and 0 < spo2 < UMBRAL_SPO2:
                 alertas.append(Alerta(
-                    tipo    = "SPO2_BAJA",
-                    mensaje = f"Saturación O₂ baja: {spo2}% (normal: ≥95%)",
-                    valor   = spo2,
+                    tipo        = "SPO2_BAJA",
+                    mensaje     = f"Saturación O₂ baja: {spo2}% (normal: ≥95%)",
+                    valor       = spo2,
+                    paciente_id = paciente_id,   # ← FIX
                 ))
             for a in alertas:
                 db.add(a)
@@ -179,9 +196,11 @@ class MQTTManager:
         finally:
             db.close()
 
-    # ── Paciente activo (para Telegram) ──────────────────────
+    # ── Setear paciente activo (llamado desde main.py) ────────
     def set_paciente_activo(self, paciente: dict | None):
         self._paciente_activo = paciente
+        self._alerta_suero_activa = False  # reset flag al cambiar paciente
+        print(f"👤 Paciente activo: {paciente.get('nombre') if paciente else 'None'} (id={self._get_paciente_id()})")
 
     # ── Publicar configuración al ESP32 ──────────────────────
     async def publicar_config(self, peso_alerta: float, peso_critico: float):
@@ -219,7 +238,7 @@ class MQTTManager:
             "estado_suero": estado_suero,
         }
 
-        registro = self._guardar_suero(peso, bomba, estado_suero)
+        registro         = self._guardar_suero(peso, bomba, estado_suero)
         payload_completo = {**self._ultimo_suero, **self._ultimos_vitales}
 
         await ws_manager.broadcast({
@@ -228,7 +247,6 @@ class MQTTManager:
             "estado": payload_completo,
         })
 
-        # Pasa estado_suero para filtrar alertas
         alertas = self._alertas_suero(peso, bomba, estado_suero)
         if alertas:
             await ws_manager.broadcast({"type": "alertas", "data": alertas})
@@ -246,7 +264,7 @@ class MQTTManager:
             "estado_vitales": estado_vitales,
         }
 
-        registro = self._guardar_vitales(fc, spo2, estado_vitales)
+        registro         = self._guardar_vitales(fc, spo2, estado_vitales)
         payload_completo = {**self._ultimo_suero, **self._ultimos_vitales}
 
         await ws_manager.broadcast({
