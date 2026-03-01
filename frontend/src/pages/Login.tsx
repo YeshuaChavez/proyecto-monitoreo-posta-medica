@@ -480,7 +480,7 @@ export default function Login({ onLogin }: { onLogin: (user: UsuarioLogin) => vo
           fontFamily: "'JetBrains Mono', monospace",
           letterSpacing: "0.06em",
         }}>
-          ESP32 · HIVEMQ · RAILWAY
+          Ingreso solo para personal autorizado
         </div>
       </div>
     </div>
