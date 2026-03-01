@@ -1,162 +1,107 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Alerta, DatosSuero, DatosVitales, EstadoLive } from "../tipos";
+import { Alerta, EstadoLive, DatosSuero, DatosVitales } from "../tipos";
 import { API, getSuero, getVitales, getAlertas } from "../services/api";
+
+const SIMULAR = false;
+
+
 
 export function useLecturas() {
   const [live, setLive] = useState<EstadoLive>({
-    peso: 500, bomba: false, estado_suero: "NORMAL",
-    fc: 0, spo2: 0, estado_vitales: "MIDIENDO",
-    timestamp: "",
+    fc: 0, spo2: 0, peso: 500,
+    bomba: false, estado_suero: "NORMAL", estado_vitales: "MIDIENDO",
   });
-
   const [historialSuero,   setHistorialSuero]   = useState<DatosSuero[]>([]);
   const [historialVitales, setHistorialVitales] = useState<DatosVitales[]>([]);
-  const [alertas,          setAlertas]          = useState<Alerta[]>([]);
-  const [conectado,        setConectado]        = useState(false);
+  const [alertas,    setAlertas]    = useState<Alerta[]>([]);
+  const [conectado,  setConectado]  = useState(false);
 
-  const wsRef  = useRef<WebSocket | null>(null);
-  const ultimosVitalesRef = useRef<DatosVitales | null>(null);
+  const wsRef             = useRef<WebSocket | null>(null);
+  const ultimosVitalesRef = useRef<{ fc: number; spo2: number; estado_vitales: string }>({
+    fc: 0, spo2: 0, estado_vitales: "MIDIENDO",
+  });
 
-  // ── Pedir permiso notificaciones al iniciar ───────────────
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  // ── Disparar notificación push ────────────────────────────
-  const notificarPush = useCallback((alertasNuevas: Alerta[]) => {
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-
-    for (const alerta of alertasNuevas) {
-      const emoji: Record<string, string> = {
-        BOMBA_ON:      "💉",
-        SUERO_CRITICO: "🚨",
-        SUERO_BAJO:    "⚠️",
-        FC_ALTA:       "❤️",
-        FC_BAJA:       "❤️",
-        SPO2_BAJA:     "🫁",
-      };
-
-      new Notification(`${emoji[alerta.tipo] ?? "⚠️"} Posta Médica — Alerta`, {
-        body:              alerta.mensaje,
-        icon:              "/favicon.ico",
-        tag:               alerta.tipo,   // evita duplicados del mismo tipo
-        requireInteraction: alerta.tipo === "SUERO_CRITICO" || alerta.tipo === "BOMBA_ON",
-      });
-    }
+  // Reset completo del estado local (cuando cambia el paciente)
+  const resetEstado = useCallback(() => {
+    setLive({ fc:0, spo2:0, peso:500, bomba:false, estado_suero:"NORMAL", estado_vitales:"MIDIENDO" });
+    setHistorialSuero([]);
+    setHistorialVitales([]);
+    setAlertas([]);
+    ultimosVitalesRef.current = { fc:0, spo2:0, estado_vitales:"MIDIENDO" };
   }, []);
 
   const cargarHistorial = useCallback(async () => {
     try {
       const [suero, vitales, alts] = await Promise.all([
-        getSuero(60),
-        getVitales(60),
-        getAlertas(20),
+        getSuero(60), getVitales(60), getAlertas(50),
       ]);
-
-      if (suero?.length)   setHistorialSuero(suero);
+      if (suero?.length)   { setHistorialSuero(suero); setLive(l => ({ ...l, ...suero[suero.length-1] })); }
       if (vitales?.length) {
         setHistorialVitales(vitales);
-        ultimosVitalesRef.current = vitales[vitales.length - 1];
+        const ultimo = vitales[vitales.length-1];
+        ultimosVitalesRef.current = { fc: ultimo.fc, spo2: ultimo.spo2, estado_vitales: ultimo.estado_vitales };
+        setLive(l => ({ ...l, fc: ultimo.fc, spo2: ultimo.spo2, estado_vitales: ultimo.estado_vitales }));
       }
       if (alts?.length) setAlertas(alts);
-
-      const ultimoSuero   = suero?.[suero.length - 1];
-      const ultimoVitales = vitales?.[vitales.length - 1];
-
-      setLive(prev => ({
-        ...prev,
-        ...(ultimoSuero   ? { peso: ultimoSuero.peso, bomba: ultimoSuero.bomba, estado_suero: ultimoSuero.estado_suero, timestamp: ultimoSuero.timestamp } : {}),
-        ...(ultimoVitales ? { fc: ultimoVitales.fc, spo2: ultimoVitales.spo2, estado_vitales: ultimoVitales.estado_vitales } : {}),
-      }));
-
-    } catch (e) {
-      console.warn("Error cargando historial:", e);
-    }
+    } catch (e) { console.warn("Error cargando historial:", e); }
   }, []);
 
   useEffect(() => {
+    if (SIMULAR) return;
     cargarHistorial();
 
     function conectar() {
       const ws = new WebSocket(API.ws);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        setConectado(true);
-        console.log("✅ WebSocket conectado");
-      };
+      ws.onopen  = () => { setConectado(true); console.log("✅ WebSocket conectado"); };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
 
-          // ── Suero (cada 1s) ───────────────────────────────
-          if (msg.type === "lectura" && msg.data) {
-            const s = msg.data as DatosSuero;
-            setHistorialSuero(h => [...h.slice(-59), s]);
-            setLive(prev => ({
-              ...prev,
-              peso:           s.peso,
-              bomba:          s.bomba,
-              estado_suero:   s.estado_suero,
-              timestamp:      s.timestamp,
-              fc:             ultimosVitalesRef.current?.fc             ?? prev.fc,
-              spo2:           ultimosVitalesRef.current?.spo2           ?? prev.spo2,
-              estado_vitales: ultimosVitalesRef.current?.estado_vitales ?? prev.estado_vitales,
-            }));
+          // Paciente cambiado → reset total
+          if (msg.type === "paciente_activo") {
+            resetEstado();
+            return;
           }
 
-          // ── Vitales (cada 10s) ────────────────────────────
+          if (msg.type === "lectura" && msg.data) {
+            const suero: DatosSuero = msg.data;
+            const vRef = ultimosVitalesRef.current;
+            const fc    = (msg.estado?.fc    && msg.estado.fc    > 0) ? msg.estado.fc    : vRef.fc;
+            const spo2  = (msg.estado?.spo2  && msg.estado.spo2  > 0) ? msg.estado.spo2  : vRef.spo2;
+            const ev    = msg.estado?.estado_vitales || vRef.estado_vitales;
+            setLive({ fc, spo2, peso: suero.peso, bomba: suero.bomba, estado_suero: suero.estado_suero, estado_vitales: ev });
+            setHistorialSuero(h => [...h.slice(-59), suero]);
+          }
+
           if (msg.type === "vitales" && msg.data) {
-            const v = msg.data as DatosVitales;
-            if (v.fc > 0) {
-              ultimosVitalesRef.current = v;
-              setHistorialVitales(h => [...h.slice(-59), v]);
-              setLive(prev => ({
-                ...prev,
-                fc:             v.fc,
-                spo2:           v.spo2,
-                estado_vitales: v.estado_vitales,
-              }));
+            const vitales: DatosVitales = msg.data;
+            if (vitales.fc > 0 && vitales.spo2 > 0) {
+              ultimosVitalesRef.current = { fc: vitales.fc, spo2: vitales.spo2, estado_vitales: vitales.estado_vitales };
+              setLive(l => ({ ...l, fc: vitales.fc, spo2: vitales.spo2, estado_vitales: vitales.estado_vitales }));
+              setHistorialVitales(h => [...h.slice(-59), vitales]);
             }
           }
 
-          // ── Alertas → push notification ───────────────────
-          if (msg.type === "alertas" && msg.data?.length > 0) {
+          if (msg.type === "alertas" && msg.data) {
             setAlertas(a => [...msg.data, ...a].slice(0, 50));
-            notificarPush(msg.data);  // ← dispara notificación del sistema
           }
-
-        } catch (e) {
-          console.warn("Error parseando WS:", e);
-        }
+        } catch (e) { console.warn("Error WS:", e); }
       };
 
       ws.onclose = () => {
         setConectado(false);
-        console.warn("WebSocket cerrado, reconectando en 3s...");
+        console.warn("WS cerrado, reconectando en 3s...");
         setTimeout(conectar, 3000);
       };
-
-      ws.onerror = (e) => {
-        console.error("WebSocket error:", e);
-        ws.close();
-      };
+      ws.onerror = () => ws.close();
     }
 
     conectar();
     return () => { wsRef.current?.close(); };
-  }, [cargarHistorial]);
+  }, [cargarHistorial, resetEstado]);
 
-  return {
-    live,
-    historialSuero,
-    historialVitales,
-    alertas,
-    setAlertas,
-    conectado,
-  };
+  return { live, historialSuero, historialVitales, alertas, setAlertas, conectado };
 }

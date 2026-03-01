@@ -4,6 +4,7 @@ export interface DatosSuero {
   id:           number;
   timestamp:    string;
   time:         string;
+  paciente_id?: number;
   peso:         number;
   bomba:        boolean;
   estado_suero: string;
@@ -13,12 +14,13 @@ export interface DatosVitales {
   id:             number;
   timestamp:      string;
   time:           string;
+  paciente_id?:   number;
   fc:             number;
   spo2:           number;
   estado_vitales: string;
 }
 
-// Estado combinado que usa el dashboard para mostrar todo junto
+// Estado combinado en tiempo real — sin timestamp (no es registro de BD)
 export interface EstadoLive {
   peso:           number;
   bomba:          boolean;
@@ -26,21 +28,38 @@ export interface EstadoLive {
   fc:             number;
   spo2:           number;
   estado_vitales: string;
-  timestamp:      string;
 }
 
 // ── Alertas ───────────────────────────────────────────────────
 export interface Alerta {
-  id:        number;
-  timestamp: string;
-  time:      string;
-  tipo:      string;   // FC_ALTA | FC_BAJA | SPO2_BAJA | SUERO_BAJO | SUERO_CRITICO | BOMBA_ON
-  mensaje:   string;
-  valor:     number | null;
-  activa:    boolean;
+  id:          number;
+  timestamp:   string;
+  time:        string;
+  paciente_id?: number;
+  tipo:        string;
+  mensaje:     string;
+  valor:       number | null;
+  activa:      boolean;
 }
 
-// ── Paciente ──────────────────────────────────────────────────
+// ── Paciente de la BD ─────────────────────────────────────────
+export interface PacienteDB {
+  id:                 number;
+  nombre:             string;
+  apellido:           string;
+  codigo?:            string;
+  doctor?:            string;
+  grupo_sanguineo?:   string;
+  fecha_nacimiento?:  string;
+  fecha_ingreso?:     string;
+  direccion?:         string;
+  contacto_nombre?:   string;
+  contacto_telefono?: string;
+  contacto_relacion?: string;
+  activo?:            boolean;
+}
+
+// ── Paciente legacy (hardcodeado) — se puede eliminar en el futuro ──
 export interface PacienteInfo {
   nombre:           string;
   apellido:         string;
