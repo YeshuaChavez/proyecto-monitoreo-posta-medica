@@ -50,7 +50,7 @@ function App() {
           Monitoreo en Tiempo Real de Pacientes
         </span>
         <span style={{ fontSize: 10, color: "#1f2937", fontFamily: "'JetBrains Mono', monospace" }}>
-          Internet de las Cosas - Proyecto Final
+          Posta Médica · Consultorio General
         </span>
       </footer>
     </div>

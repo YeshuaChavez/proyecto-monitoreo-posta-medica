@@ -55,9 +55,9 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
             display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
           }}>👤</div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Paciente — Consultorio General</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Paciente - Consultorio General</div>
             <div style={{ fontSize: 11, color: "#4b5563", fontFamily: "'JetBrains Mono', monospace" }}>
-              Posta Médica · UNMSM FISI 2026
+              Posta Médica
             </div>
           </div>
         </div>

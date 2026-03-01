@@ -93,7 +93,7 @@ const Paciente = ({ live }: Props) => {
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Ficha del Paciente</h2>
           <p style={{ fontSize: 11, color: "#4b5563", margin: "3px 0 0", fontFamily: "'JetBrains Mono', monospace" }}>
-            {paciente.id} · Consultorio General · Posta Médica
+            {paciente.id} · Consultorio General
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -194,7 +194,7 @@ const Paciente = ({ live }: Props) => {
                       fontFamily: "'JetBrains Mono', monospace",
                       letterSpacing: "0.06em",
                     }}>
-                    📧 ENVIAR REPORTE AL FAMILIAR
+                    📧 ENVIAR REPORTE
                   </button>
                 </div>
               </>
