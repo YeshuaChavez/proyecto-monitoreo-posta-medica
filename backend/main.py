@@ -9,19 +9,36 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from database import SessionLocal, init_db
 from models import Suero, Vitales, Alerta, Config, Usuario, Paciente
 from mqtt_client import MQTTManager
 from telegram_bot import polling
+from email_service import enviar_email_familiar
 
 mqtt_manager = MQTTManager()
 
+
+# ═══════════════════════════════════════════════════════════════
+#  DEPENDENCY — DB SESSION
+# ═══════════════════════════════════════════════════════════════
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+#  WEBSOCKET MANAGER
+# ═══════════════════════════════════════════════════════════════
 class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
@@ -45,8 +62,13 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+
 ws_manager = ConnectionManager()
 
+
+# ═══════════════════════════════════════════════════════════════
+#  LIFESPAN
+# ═══════════════════════════════════════════════════════════════
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -60,6 +82,7 @@ async def lifespan(app: FastAPI):
         await task_telegram
     except asyncio.CancelledError:
         pass
+
 
 app = FastAPI(
     title="Monitor IoT Posta Médica",
@@ -75,6 +98,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ═══════════════════════════════════════════════════════════════
+#  ESTADO GLOBAL — PACIENTE ACTIVO
+# ═══════════════════════════════════════════════════════════════
+_paciente_activo_id: int | None = None
+
 
 # ═══════════════════════════════════════════════════════════════
 #  WEBSOCKET
@@ -94,7 +124,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     "data": ultimo_suero.to_dict(),
                     "estado": {
                         **ultimo_suero.to_dict(),
-                        **(ultimos_vitales.to_dict() if ultimos_vitales else {"fc": 0, "spo2": 0, "estado_vitales": "MIDIENDO"}),
+                        **(ultimos_vitales.to_dict() if ultimos_vitales else {
+                            "fc": 0, "spo2": 0, "estado_vitales": "MIDIENDO"
+                        }),
                     }
                 }, default=str))
 
@@ -103,6 +135,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     "type": "vitales",
                     "data": ultimos_vitales.to_dict(),
                 }, default=str))
+
+            # Enviar paciente activo al conectarse
+            if _paciente_activo_id:
+                p = db.query(Paciente).filter(Paciente.id == _paciente_activo_id).first()
+                if p:
+                    await websocket.send_text(json.dumps({
+                        "type":     "paciente_activo",
+                        "paciente": p.to_dict(),
+                    }, default=str))
+
         finally:
             db.close()
 
@@ -115,12 +157,14 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception:
         ws_manager.disconnect(websocket)
 
+
 # ═══════════════════════════════════════════════════════════════
 #  REST — GENERAL
 # ═══════════════════════════════════════════════════════════════
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "Monitor IoT Posta Médica — UNMSM FISI 2026"}
+    return {"status": "ok", "service": "Monitor IoT Posta Médica — Consultorio General"}
+
 
 # ═══════════════════════════════════════════════════════════════
 #  REST — SUERO
@@ -158,6 +202,7 @@ def get_suero_rango(desde: str, hasta: str):
     finally:
         db.close()
 
+
 # ═══════════════════════════════════════════════════════════════
 #  REST — VITALES
 # ═══════════════════════════════════════════════════════════════
@@ -194,6 +239,7 @@ def get_vitales_rango(desde: str, hasta: str):
     finally:
         db.close()
 
+
 # ═══════════════════════════════════════════════════════════════
 #  REST — ALERTAS
 # ═══════════════════════════════════════════════════════════════
@@ -218,46 +264,67 @@ def limpiar_alertas():
     finally:
         db.close()
 
+
 # ═══════════════════════════════════════════════════════════════
 #  REST — COMANDOS
 # ═══════════════════════════════════════════════════════════════
 class ComandoRequest(BaseModel):
     cmd:    str
-    origen: str = "dashboard"  # dashboard | telegram | voz
+    origen: str = "dashboard"
 
 COMANDOS_VALIDOS = {"bomba_on", "bomba_off", "reset", "tare"}
 
 @app.post("/comandos")
 async def enviar_comando(body: ComandoRequest):
     if body.cmd not in COMANDOS_VALIDOS:
-        raise HTTPException(status_code=400, detail=f"Comando inválido. Válidos: {COMANDOS_VALIDOS}")
-    
-    # Guardar origen para que _guardar_suero lo use en el próximo ciclo
+        raise HTTPException(
+            status_code=400,
+            detail=f"Comando inválido. Válidos: {COMANDOS_VALIDOS}"
+        )
     mqtt_manager.ultimo_origen = body.origen
-    
     await mqtt_manager.publicar_comando(body.cmd)
     return {"ok": True, "cmd": body.cmd, "timestamp": datetime.utcnow().isoformat()}
+
 
 # ═══════════════════════════════════════════════════════════════
 #  REST — EMAIL
 # ═══════════════════════════════════════════════════════════════
 class EmailRequest(BaseModel):
     destinatario: str
-    payload: dict = {}
-    alertas: list = []
+    payload:      dict = {}
+    alertas:      list = []
+    paciente_id:  int | None = None
 
 @app.post("/enviar-email")
-async def enviar_email_endpoint(body: EmailRequest):
-    from email_service import enviar_email_familiar
-    await enviar_email_familiar(
-        payload      = body.payload,
-        alertas      = body.alertas,
-        destinatario = body.destinatario,
-    )
-    return {"ok": True, "destinatario": body.destinatario}
+async def endpoint_email(req: EmailRequest, db: Session = Depends(get_db)):
+    paciente      = db.query(Paciente).filter(Paciente.id == req.paciente_id).first() if req.paciente_id else None
+    paciente_dict = {
+        "nombre":           paciente.nombre,
+        "apellido":         paciente.apellido,
+        "codigo":           paciente.codigo,
+        "id":               paciente.id,
+        "doctor":           paciente.doctor,
+        "grupo_sanguineo":  paciente.grupo_sanguineo,
+        "fecha_ingreso":    paciente.fecha_ingreso,
+        "contacto_nombre":  paciente.contacto_nombre,
+        "contacto_telefono":paciente.contacto_telefono,
+        "contacto_relacion":paciente.contacto_relacion,
+    } if paciente else None
+
+    try:
+        await enviar_email_familiar(
+            payload      = req.payload,
+            alertas      = req.alertas,
+            destinatario = req.destinatario,
+            paciente     = paciente_dict,
+        )
+        return {"ok": True, "mensaje": f"Email enviado a {req.destinatario}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ═══════════════════════════════════════════════════════════════
-#  REST — LECTURA CONFIGURACIÓN Y ACTUALIZAR UMBRALES
+#  REST — CONFIG / UMBRALES
 # ═══════════════════════════════════════════════════════════════
 class ConfigRequest(BaseModel):
     peso_alerta:  float
@@ -265,7 +332,6 @@ class ConfigRequest(BaseModel):
 
 @app.get("/config")
 def get_configuracion():
-    """Obtiene la configuración activa de umbrales."""
     db = SessionLocal()
     try:
         cfg = db.query(Config).order_by(Config.id.desc()).first()
@@ -277,8 +343,6 @@ def get_configuracion():
 
 @app.post("/config")
 async def guardar_configuracion(body: ConfigRequest):
-    """Guarda nuevos umbrales y los envía al ESP32 por MQTT."""
-    # Validar rangos
     if body.peso_critico >= body.peso_alerta:
         raise HTTPException(
             status_code=400,
@@ -287,10 +351,9 @@ async def guardar_configuracion(body: ConfigRequest):
     if body.peso_critico < 10 or body.peso_alerta > 490:
         raise HTTPException(
             status_code=400,
-            detail="Umbrales fuera de rango (crítico: 10-490g, alerta: 10-490g)"
+            detail="Umbrales fuera de rango (10–490g)"
         )
 
-    # Guardar en BD
     db = SessionLocal()
     try:
         cfg = Config(
@@ -301,13 +364,13 @@ async def guardar_configuracion(body: ConfigRequest):
         db.add(cfg)
         db.commit()
         db.refresh(cfg)
+        result = cfg.to_dict()
     finally:
         db.close()
 
-    # Enviar al ESP32 por MQTT
     await mqtt_manager.publicar_config(body.peso_alerta, body.peso_critico)
+    return {"ok": True, "config": result}
 
-    return {"ok": True, "config": cfg.to_dict()}
 
 # ═══════════════════════════════════════════════════════════════
 #  REST — STATS
@@ -332,8 +395,9 @@ def get_stats():
     finally:
         db.close()
 
+
 # ═══════════════════════════════════════════════════════════════
-#  REST — USUARIOS (LOGIN)
+#  REST — LOGIN
 # ═══════════════════════════════════════════════════════════════
 class LoginRequest(BaseModel):
     usuario:  str
@@ -344,9 +408,9 @@ def login(body: LoginRequest):
     db = SessionLocal()
     try:
         user = db.query(Usuario).filter(
-            Usuario.usuario == body.usuario,
+            Usuario.usuario  == body.usuario,
             Usuario.password == body.password,
-            Usuario.activo == True,
+            Usuario.activo   == True,
         ).first()
         if not user:
             raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
@@ -354,15 +418,15 @@ def login(body: LoginRequest):
     finally:
         db.close()
 
-# ═══════════════════════════════════════════════════════════════
-#  REST — PACIENTES 
-# ═══════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════
+#  REST — PACIENTES (CRUD)
+# ═══════════════════════════════════════════════════════════════
 class PacienteRequest(BaseModel):
     nombre:            str
     apellido:          str
-    codigo:            str
-    doctor:            str = ""
+    codigo:            str | None = None
+    doctor_id:         int | None = None
     grupo_sanguineo:   str = ""
     fecha_nacimiento:  str = ""
     fecha_ingreso:     str = ""
@@ -397,11 +461,21 @@ def get_paciente(paciente_id: int):
 def crear_paciente(body: PacienteRequest):
     db = SessionLocal()
     try:
-        # Verificar código único
-        existe = db.query(Paciente).filter(Paciente.codigo == body.codigo).first()
-        if existe:
-            raise HTTPException(status_code=400, detail=f"El código {body.codigo} ya existe")
-        p = Paciente(**body.dict(), created_at=datetime.utcnow())
+        p = Paciente(
+            nombre            = body.nombre,
+            apellido          = body.apellido,
+            codigo            = body.codigo,
+            doctor            = body.doctor,
+            grupo_sanguineo   = body.grupo_sanguineo,
+            fecha_nacimiento  = body.fecha_nacimiento,
+            fecha_ingreso     = body.fecha_ingreso,
+            direccion         = body.direccion,
+            contacto_nombre   = body.contacto_nombre,
+            contacto_telefono = body.contacto_telefono,
+            contacto_relacion = body.contacto_relacion,
+            activo            = True,
+            created_at        = datetime.utcnow(),
+        )
         db.add(p)
         db.commit()
         db.refresh(p)
@@ -416,15 +490,17 @@ def actualizar_paciente(paciente_id: int, body: PacienteRequest):
         p = db.query(Paciente).filter(Paciente.id == paciente_id).first()
         if not p:
             raise HTTPException(status_code=404, detail="Paciente no encontrado")
-        # Verificar código único (excluyendo el mismo)
-        existe = db.query(Paciente).filter(
-            Paciente.codigo == body.codigo,
-            Paciente.id != paciente_id
-        ).first()
-        if existe:
-            raise HTTPException(status_code=400, detail=f"El código {body.codigo} ya existe")
-        for k, v in body.dict().items():
-            setattr(p, k, v)
+        p.nombre            = body.nombre
+        p.apellido          = body.apellido
+        p.codigo            = body.codigo
+        p.doctor            = body.doctor
+        p.grupo_sanguineo   = body.grupo_sanguineo
+        p.fecha_nacimiento  = body.fecha_nacimiento
+        p.fecha_ingreso     = body.fecha_ingreso
+        p.direccion         = body.direccion
+        p.contacto_nombre   = body.contacto_nombre
+        p.contacto_telefono = body.contacto_telefono
+        p.contacto_relacion = body.contacto_relacion
         db.commit()
         db.refresh(p)
         return p.to_dict()
@@ -433,7 +509,6 @@ def actualizar_paciente(paciente_id: int, body: PacienteRequest):
 
 @app.delete("/pacientes/{paciente_id}")
 def desactivar_paciente(paciente_id: int):
-    """Soft delete — marca como inactivo."""
     db = SessionLocal()
     try:
         p = db.query(Paciente).filter(Paciente.id == paciente_id).first()
@@ -441,17 +516,14 @@ def desactivar_paciente(paciente_id: int):
             raise HTTPException(status_code=404, detail="Paciente no encontrado")
         p.activo = False
         db.commit()
-        return {"ok": True, "mensaje": f"Paciente {p.codigo} desactivado"}
+        return {"ok": True, "mensaje": f"Paciente desactivado"}
     finally:
         db.close()
 
-# ═══════════════════════════════════════════════════════════════
-#  REST — SELECCIONAR PACIENTE ACTIVO + RESET
-# ═══════════════════════════════════════════════════════════════
 
-# Estado global: paciente actualmente en monitoreo
-_paciente_activo_id: int | None = None
-
+# ═══════════════════════════════════════════════════════════════
+#  REST — PACIENTE ACTIVO + RESET
+# ═══════════════════════════════════════════════════════════════
 @app.get("/paciente-activo")
 def get_paciente_activo():
     if _paciente_activo_id is None:
@@ -469,37 +541,40 @@ class SeleccionarPacienteRequest(BaseModel):
 @app.post("/paciente-activo")
 async def seleccionar_paciente(body: SeleccionarPacienteRequest):
     """
-    Selecciona el paciente activo y resetea el sistema:
     1. Actualiza estado global
-    2. Manda reset al ESP32 (limpia bomba/alertas)
-    3. Broadcast a todos los clientes WebSocket
-    4. El frontend limpia su historial local
+    2. Manda reset al ESP32
+    3. Broadcast WebSocket → frontend limpia historial
     """
     global _paciente_activo_id
     db = SessionLocal()
     try:
         p = db.query(Paciente).filter(
-            Paciente.id == body.paciente_id,
-            Paciente.activo == True
+            Paciente.id    == body.paciente_id,
+            Paciente.activo == True,
         ).first()
         if not p:
             raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
         _paciente_activo_id = p.id
-
-        # Actualizar fecha de ingreso al día de hoy
-        p.fecha_ingreso = datetime.now().strftime("%d-%m-%Y")
+        p.fecha_ingreso     = datetime.now().strftime("%d-%m-%Y")
         db.commit()
 
-        # 1. Reset físico del ESP32 (limpia bomba + alertas)
         await mqtt_manager.publicar_comando("reset")
-
-        # 2. Broadcast a todos los WS — el frontend resetea su estado
         await ws_manager.broadcast({
-            "type":    "paciente_activo",
+            "type":     "paciente_activo",
             "paciente": p.to_dict(),
         })
 
         return {"ok": True, "paciente": p.to_dict()}
+    finally:
+        db.close()
+
+@app.get("/usuarios/medicos")
+def get_usuarios_medicos():
+    db = SessionLocal()
+    try:
+        return [u.to_dict() for u in db.query(Usuario)
+                .filter(Usuario.activo == True, Usuario.rol != "Administrador")
+                .order_by(Usuario.nombre).all()]
     finally:
         db.close()

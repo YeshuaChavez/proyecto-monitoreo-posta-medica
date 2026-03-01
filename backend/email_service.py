@@ -3,6 +3,7 @@ email_service.py
 - Envía correo con HTML bonito (signos vitales + alertas)
 - Adjunta PDF con reporte completo
 - Usa Resend API (HTTP) — funciona en Railway gratuito
+- Datos del paciente tomados dinámicamente de la BD
 """
 
 import os
@@ -26,15 +27,46 @@ except ImportError:
 RESEND_API_KEY  = os.environ.get("RESEND_API_KEY",  "")
 EMAIL_REMITENTE = os.environ.get("EMAIL_REMITENTE", "onboarding@resend.dev")
 
+
+# ══════════════════════════════════════════════════════════════
+#  HELPERS
+# ══════════════════════════════════════════════════════════════
+def _nombre_completo(paciente: dict | None) -> str:
+    if not paciente:
+        return "Paciente"
+    return f"{paciente.get('nombre', '')} {paciente.get('apellido', '')}".strip()
+
+def _id_paciente(paciente: dict | None) -> str:
+    if not paciente:
+        return "—"
+    return paciente.get("codigo") or f"PCT-{paciente.get('id', '?')}"
+
+def _campo(paciente: dict | None, key: str, fallback: str = "—") -> str:
+    if not paciente:
+        return fallback
+    return paciente.get(key) or fallback
+
+
 # ══════════════════════════════════════════════════════════════
 #  HTML
 # ══════════════════════════════════════════════════════════════
-def _construir_html(payload: dict, alertas: list, hora: str) -> str:
+def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | None = None) -> str:
     fc    = payload.get("fc",    0)
     spo2  = payload.get("spo2",  0)
     peso  = payload.get("peso",  0)
     bomba = payload.get("bomba", False)
 
+    # Datos del paciente desde la BD
+    nombre        = _nombre_completo(paciente)
+    id_pac        = _id_paciente(paciente)
+    doctor        = _campo(paciente, "doctor")
+    grupo_sang    = _campo(paciente, "grupo_sanguineo")
+    fecha_ingreso = _campo(paciente, "fecha_ingreso")
+    contacto_nom  = _campo(paciente, "contacto_nombre")
+    contacto_tel  = _campo(paciente, "contacto_telefono")
+    contacto_rel  = _campo(paciente, "contacto_relacion")
+
+    # Colores y estados
     color_fc   = "#ef4444" if (fc > 100 or (fc < 60 and fc > 0)) else "#10b981" if fc > 0 else "#6b7280"
     color_spo2 = "#ef4444" if (spo2 > 0 and spo2 < 95)           else "#10b981" if spo2 > 0 else "#6b7280"
     color_peso = "#ef4444" if peso < 100 else "#f59e0b" if peso < 150 else "#10b981"
@@ -43,11 +75,12 @@ def _construir_html(payload: dict, alertas: list, hora: str) -> str:
     estado_spo2 = "ALERTA" if (spo2 > 0 and spo2 < 95)           else "Normal" if spo2 > 0 else "Sin sensor"
     estado_peso = "CRÍTICO" if peso < 100 else "BAJO" if peso < 150 else "Normal"
 
-    bg_fc   = "rgba(239,68,68,0.15)"   if "ALERTA" in estado_fc   else "rgba(16,185,129,0.12)"
-    bg_spo2 = "rgba(239,68,68,0.15)"   if "ALERTA" in estado_spo2 else "rgba(16,185,129,0.12)"
-    bg_peso = "rgba(239,68,68,0.15)"   if estado_peso == "CRÍTICO" else "rgba(245,158,11,0.15)" if estado_peso == "BAJO" else "rgba(16,185,129,0.12)"
+    bg_fc   = "rgba(239,68,68,0.15)"  if "ALERTA" in estado_fc   else "rgba(16,185,129,0.12)"
+    bg_spo2 = "rgba(239,68,68,0.15)"  if "ALERTA" in estado_spo2 else "rgba(16,185,129,0.12)"
+    bg_peso = "rgba(239,68,68,0.15)"  if estado_peso == "CRÍTICO" else "rgba(245,158,11,0.15)" if estado_peso == "BAJO" else "rgba(16,185,129,0.12)"
     txt_peso = "#ef4444" if estado_peso == "CRÍTICO" else "#f59e0b" if estado_peso == "BAJO" else "#10b981"
 
+    # Bloque alertas
     bloque_alertas = ""
     if alertas:
         filas = ""
@@ -55,13 +88,13 @@ def _construir_html(payload: dict, alertas: list, hora: str) -> str:
             tipo    = a.get("tipo", "")
             mensaje = a.get("mensaje", "")
             em      = {"BOMBA_ON":"💉","SUERO_CRITICO":"🚨","SUERO_BAJO":"⚠️","FC_ALTA":"❤️","FC_BAJA":"❤️","SPO2_BAJA":"🫁"}.get(tipo, "⚠️")
-            es_crit = tipo in ("SUERO_CRITICO","FC_ALTA","FC_BAJA","SPO2_BAJA")
+            es_crit = tipo in ("SUERO_CRITICO", "FC_ALTA", "FC_BAJA", "SPO2_BAJA")
             color_a = "#ef4444" if es_crit else "#f59e0b"
             filas += f"""
             <tr>
               <td style="padding:12px 14px;border-bottom:1px solid #1a2235;font-size:18px;width:40px;vertical-align:middle">{em}</td>
               <td style="padding:12px 14px;border-bottom:1px solid #1a2235;vertical-align:middle">
-                <span style="color:{color_a};font-size:12px;font-weight:700;font-family:monospace">{tipo.replace("_"," ")}</span><br>
+                <span style="color:{color_a};font-size:12px;font-weight:700;font-family:monospace">{tipo.replace('_',' ')}</span><br>
                 <span style="color:#cbd5e1;font-size:12px">{mensaje}</span>
               </td>
             </tr>"""
@@ -79,12 +112,35 @@ def _construir_html(payload: dict, alertas: list, hora: str) -> str:
         padding:3px 10px;border-radius:99px;font-size:9px;font-weight:700;font-family:monospace">
         ✅ BOMBA EN STANDBY</span>"""
 
+    # Bloque contacto familiar (solo si hay datos)
+    bloque_contacto = ""
+    if contacto_nom != "—":
+        bloque_contacto = f"""
+  <!-- CONTACTO FAMILIAR -->
+  <div style="background:#0d1628;border:1px solid rgba(167,139,250,0.15);border-radius:14px;
+              padding:16px 22px;margin-bottom:20px">
+    <p style="color:#a78bfa;font-size:9px;font-family:monospace;letter-spacing:0.16em;margin:0 0 10px">
+      📞 CONTACTO FAMILIAR
+    </p>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div>
+        <span style="color:#6b7280;font-size:10px;font-family:monospace">Nombre</span><br>
+        <span style="color:#e2e8f0;font-size:13px;font-weight:600">{contacto_nom}</span>
+        <span style="color:#4b5563;font-size:10px;margin-left:6px">({contacto_rel})</span>
+      </div>
+      <div>
+        <span style="color:#6b7280;font-size:10px;font-family:monospace">Teléfono</span><br>
+        <span style="color:#e2e8f0;font-size:13px;font-weight:600">{contacto_tel}</span>
+      </div>
+    </div>
+  </div>"""
+
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Reporte Monitor IoT - Posta Médica</title>
+  <title>Reporte Monitor IoT — Posta Médica</title>
 </head>
 <body style="margin:0;padding:0;background:#060a12;font-family:'Segoe UI',Arial,sans-serif;color:#e2e8f0">
 <div style="max-width:640px;margin:0 auto;padding:32px 16px">
@@ -113,12 +169,12 @@ def _construir_html(payload: dict, alertas: list, hora: str) -> str:
     </p>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
       <div>
-        <div style="font-size:17px;font-weight:800;color:#f1f5f9">Juan Carlos Rodriguez Gomez</div>
+        <div style="font-size:17px;font-weight:800;color:#f1f5f9">{nombre}</div>
         <div style="font-size:11px;color:#6b7280;margin-top:4px;font-family:monospace">
-          ID: PCT-2026-0042 &nbsp;·&nbsp; Consultorio General
+          ID: {id_pac} &nbsp;·&nbsp; Consultorio General
         </div>
         <div style="font-size:11px;color:#6b7280;margin-top:2px;font-family:monospace">
-          Dr. Paredes Villanueva &nbsp;·&nbsp; Posta Médica
+          {doctor} &nbsp;·&nbsp; Grupo: {grupo_sang} &nbsp;·&nbsp; Ingreso: {fecha_ingreso}
         </div>
       </div>
       <div style="text-align:right">
@@ -126,6 +182,8 @@ def _construir_html(payload: dict, alertas: list, hora: str) -> str:
       </div>
     </div>
   </div>
+
+  {bloque_contacto}
 
   <!-- SIGNOS VITALES -->
   <p style="color:#94a3b8;font-size:10px;font-family:monospace;letter-spacing:0.14em;margin:0 0 12px;text-transform:uppercase">
@@ -206,9 +264,20 @@ def _construir_html(payload: dict, alertas: list, hora: str) -> str:
 # ══════════════════════════════════════════════════════════════
 #  PDF
 # ══════════════════════════════════════════════════════════════
-def _generar_pdf(payload: dict, alertas: list) -> bytes | None:
+def _generar_pdf(payload: dict, alertas: list, paciente: dict | None = None) -> bytes | None:
     if not REPORTLAB_OK:
+        print("⚠️ PDF no generado — reportlab no disponible")
         return None
+
+    # Datos del paciente
+    nombre        = _nombre_completo(paciente)
+    id_pac        = _id_paciente(paciente)
+    doctor        = _campo(paciente, "doctor")
+    grupo_sang    = _campo(paciente, "grupo_sanguineo")
+    fecha_ingreso = _campo(paciente, "fecha_ingreso")
+    contacto_nom  = _campo(paciente, "contacto_nombre")
+    contacto_tel  = _campo(paciente, "contacto_telefono")
+    contacto_rel  = _campo(paciente, "contacto_relacion")
 
     buffer = BytesIO()
     doc    = SimpleDocTemplate(
@@ -225,10 +294,11 @@ def _generar_pdf(payload: dict, alertas: list) -> bytes | None:
     gris_osc  = colors.HexColor("#475569")
     bg_header = colors.HexColor("#0f172a")
     bg_alt    = colors.HexColor("#f8fafc")
+    morado    = colors.HexColor("#7c3aed")
 
-    titulo_s  = ParagraphStyle("titulo",  fontSize=20, textColor=azul_osc,  fontName="Helvetica-Bold", spaceAfter=4, alignment=1)
-    sub_s     = ParagraphStyle("sub",     fontSize=10, textColor=gris_osc,  fontName="Helvetica",      spaceAfter=2, alignment=1)
-    seccion_s = ParagraphStyle("seccion", fontSize=11, textColor=azul_cian, fontName="Helvetica-Bold", spaceAfter=6, spaceBefore=10)
+    titulo_s  = ParagraphStyle("titulo",  fontSize=20, textColor=azul_osc,  fontName="Helvetica-Bold", spaceAfter=4,  alignment=1)
+    sub_s     = ParagraphStyle("sub",     fontSize=10, textColor=gris_osc,  fontName="Helvetica",      spaceAfter=2,  alignment=1)
+    seccion_s = ParagraphStyle("seccion", fontSize=11, textColor=azul_cian, fontName="Helvetica-Bold", spaceAfter=6,  spaceBefore=10)
     body_s    = ParagraphStyle("body",    fontSize=10, textColor=colors.HexColor("#1e293b"), fontName="Helvetica", spaceAfter=4, leading=14)
     footer_s  = ParagraphStyle("footer",  fontSize=8,  textColor=gris_osc,  fontName="Helvetica",      alignment=1)
 
@@ -250,86 +320,92 @@ def _generar_pdf(payload: dict, alertas: list) -> bytes | None:
         HRFlowable(width="100%", thickness=1.5, color=azul_cian, spaceAfter=12),
     ]
 
+    # Tabla paciente — con datos de la BD
     elementos.append(Paragraph("▸ Datos del Paciente", seccion_s))
-    t_paciente = Table([
-        ["Campo",             "Información"],
-        ["Nombre completo",   "Juan Carlos Rodriguez Gomez"],
-        ["ID Paciente",       "PCT-2026-0042"],
-        ["Ubicación",         "Consultorio General — Posta Médica"],
-        ["Doctor asignado",   "Dr. Paredes Villanueva"],
-        ["Grupo sanguíneo",   "O+"],
-        ["Fecha de ingreso",  "20/02/2026"]
-    ], colWidths=[2.3*inch, 4.2*inch])
+    filas_paciente = [
+        ["Campo",            "Información"],
+        ["Nombre completo",  nombre],
+        ["ID Paciente",      id_pac],
+        ["Ubicación",        "Consultorio General — Posta Médica"],
+        ["Doctor asignado",  doctor],
+        ["Grupo sanguíneo",  grupo_sang],
+        ["Fecha de ingreso", fecha_ingreso],
+    ]
+    # Agregar contacto familiar si existe
+    if contacto_nom != "—":
+        filas_paciente.append(["Contacto familiar", f"{contacto_nom} ({contacto_rel}) — {contacto_tel}"])
+
+    t_paciente = Table(filas_paciente, colWidths=[2.3*inch, 4.2*inch])
     t_paciente.setStyle(TableStyle([
-        ("BACKGROUND",     (0,0),(-1, 0), bg_header),
-        ("TEXTCOLOR",      (0,0),(-1, 0), colors.white),
-        ("FONTNAME",       (0,0),(-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",       (0,0),(-1, 0), 10),
-        ("ALIGN",          (0,0),(-1, 0), "CENTER"),
-        ("FONTNAME",       (0,1),(0, -1), "Helvetica-Bold"),
-        ("FONTSIZE",       (0,1),(-1,-1), 9),
-        ("ROWBACKGROUNDS", (0,1),(-1,-1), [bg_alt, colors.white]),
-        ("GRID",           (0,0),(-1,-1), 0.4, colors.HexColor("#cbd5e1")),
-        ("PADDING",        (0,0),(-1,-1), 7),
-        ("TEXTCOLOR",      (1,-1),(-1,-1), verde if not bomba else amarillo),
+        ("BACKGROUND",     (0, 0), (-1,  0), bg_header),
+        ("TEXTCOLOR",      (0, 0), (-1,  0), colors.white),
+        ("FONTNAME",       (0, 0), (-1,  0), "Helvetica-Bold"),
+        ("FONTSIZE",       (0, 0), (-1,  0), 10),
+        ("ALIGN",          (0, 0), (-1,  0), "CENTER"),
+        ("FONTNAME",       (0, 1), ( 0, -1), "Helvetica-Bold"),
+        ("FONTSIZE",       (0, 1), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [bg_alt, colors.white]),
+        ("GRID",           (0, 0), (-1, -1), 0.4, colors.HexColor("#cbd5e1")),
+        ("PADDING",        (0, 0), (-1, -1), 7),
     ]))
     elementos += [t_paciente, Spacer(1, 0.2*inch)]
 
-    elementos.append(Paragraph("▸ Signos Vitales", seccion_s))
-
+    # Tabla signos vitales
     def color_estado(est):
         if est in ("ALERTA", "CRÍTICO"): return rojo
-        if est == "BAJO":   return amarillo
-        if est == "Normal": return verde
+        if est == "BAJO":                return amarillo
+        if est == "Normal":              return verde
         return gris_osc
 
+    elementos.append(Paragraph("▸ Signos Vitales", seccion_s))
     t_vitales = Table([
         ["Signo Vital",    "Valor",                         "Unidad", "Estado",     "Rango Normal"],
         ["Frec. Cardíaca", str(fc)   if fc   > 0 else "—", "bpm",    estado_fc,    "60 – 100 bpm"],
-        ["Saturación O₂", str(spo2) if spo2 > 0 else "—", "%",      estado_spo2,  "≥ 95%"],
+        ["Saturación O₂",  str(spo2) if spo2 > 0 else "—", "%",      estado_spo2,  "≥ 95%"],
         ["Fluido IV",      f"{peso:.1f}",                  "g",      estado_peso,  "≥ 150g OK"],
     ], colWidths=[1.8*inch, 1.2*inch, 0.8*inch, 1.2*inch, 1.5*inch])
     t_vitales.setStyle(TableStyle([
-        ("BACKGROUND",     (0,0),(-1, 0), azul_osc),
-        ("TEXTCOLOR",      (0,0),(-1, 0), colors.white),
-        ("FONTNAME",       (0,0),(-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",       (0,0),(-1, 0), 9),
-        ("ALIGN",          (0,0),(-1,-1), "CENTER"),
-        ("FONTNAME",       (0,1),(0, -1), "Helvetica-Bold"),
-        ("FONTSIZE",       (0,1),(-1,-1), 9),
-        ("ROWBACKGROUNDS", (0,1),(-1,-1), [colors.HexColor("#e0f2fe"), colors.white]),
-        ("GRID",           (0,0),(-1,-1), 0.4, colors.HexColor("#bae6fd")),
-        ("PADDING",        (0,0),(-1,-1), 7),
-        ("TEXTCOLOR",      (3,1),(3,1), color_estado(estado_fc)),
-        ("TEXTCOLOR",      (3,2),(3,2), color_estado(estado_spo2)),
-        ("TEXTCOLOR",      (3,3),(3,3), color_estado(estado_peso)),
-        ("FONTNAME",       (3,1),(3,-1), "Helvetica-Bold"),
+        ("BACKGROUND",     (0, 0), (-1,  0), azul_osc),
+        ("TEXTCOLOR",      (0, 0), (-1,  0), colors.white),
+        ("FONTNAME",       (0, 0), (-1,  0), "Helvetica-Bold"),
+        ("FONTSIZE",       (0, 0), (-1,  0), 9),
+        ("ALIGN",          (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME",       (0, 1), ( 0, -1), "Helvetica-Bold"),
+        ("FONTSIZE",       (0, 1), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#e0f2fe"), colors.white]),
+        ("GRID",           (0, 0), (-1, -1), 0.4, colors.HexColor("#bae6fd")),
+        ("PADDING",        (0, 0), (-1, -1), 7),
+        ("TEXTCOLOR",      (3, 1), ( 3,  1), color_estado(estado_fc)),
+        ("TEXTCOLOR",      (3, 2), ( 3,  2), color_estado(estado_spo2)),
+        ("TEXTCOLOR",      (3, 3), ( 3,  3), color_estado(estado_peso)),
+        ("FONTNAME",       (3, 1), ( 3, -1), "Helvetica-Bold"),
     ]))
     elementos += [t_vitales, Spacer(1, 0.2*inch)]
 
+    # Tabla alertas
     if alertas:
         elementos.append(Paragraph("▸ Alertas Detectadas", seccion_s))
         t_alertas = [["Tipo", "Descripción"]]
         for a in alertas:
-            t_alertas.append([a.get("tipo","").replace("_"," "), a.get("mensaje","")])
+            t_alertas.append([a.get("tipo", "").replace("_", " "), a.get("mensaje", "")])
         ta = Table(t_alertas, colWidths=[1.8*inch, 4.7*inch])
         ta.setStyle(TableStyle([
-            ("BACKGROUND",     (0,0),(-1, 0), colors.HexColor("#7f1d1d")),
-            ("TEXTCOLOR",      (0,0),(-1, 0), colors.white),
-            ("FONTNAME",       (0,0),(-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE",       (0,0),(-1,-1), 9),
-            ("ALIGN",          (0,0),(-1,-1), "LEFT"),
-            ("ROWBACKGROUNDS", (0,1),(-1,-1), [colors.HexColor("#fff1f2"), colors.white]),
-            ("GRID",           (0,0),(-1,-1), 0.4, colors.HexColor("#fecaca")),
-            ("PADDING",        (0,0),(-1,-1), 7),
-            ("TEXTCOLOR",      (0,1),(0,-1), rojo),
-            ("FONTNAME",       (0,1),(0,-1), "Helvetica-Bold"),
+            ("BACKGROUND",     (0, 0), (-1,  0), colors.HexColor("#7f1d1d")),
+            ("TEXTCOLOR",      (0, 0), (-1,  0), colors.white),
+            ("FONTNAME",       (0, 0), (-1,  0), "Helvetica-Bold"),
+            ("FONTSIZE",       (0, 0), (-1, -1), 9),
+            ("ALIGN",          (0, 0), (-1, -1), "LEFT"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#fff1f2"), colors.white]),
+            ("GRID",           (0, 0), (-1, -1), 0.4, colors.HexColor("#fecaca")),
+            ("PADDING",        (0, 0), (-1, -1), 7),
+            ("TEXTCOLOR",      (0, 1), ( 0, -1), rojo),
+            ("FONTNAME",       (0, 1), ( 0, -1), "Helvetica-Bold"),
         ]))
         elementos += [ta, Spacer(1, 0.2*inch)]
 
     elementos += [
         HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cbd5e1"), spaceAfter=10),
-        Paragraph("Estimado familiar:", body_s),
+        Paragraph("Estimado familiar,", body_s),
         Paragraph(
             "Este reporte fue generado automáticamente por el sistema de monitoreo IoT de la Posta Médica. "
             "Los valores mostrados corresponden a promedios de 10 segundos medidos por el sensor MAX30102. "
@@ -348,20 +424,26 @@ def _generar_pdf(payload: dict, alertas: list) -> bytes | None:
 # ══════════════════════════════════════════════════════════════
 #  FUNCIÓN PRINCIPAL
 # ══════════════════════════════════════════════════════════════
-async def enviar_email_familiar(payload: dict, alertas: list, destinatario: str = ""):
+async def enviar_email_familiar(
+    payload:      dict,
+    alertas:      list,
+    destinatario: str  = "",
+    paciente:     dict | None = None,
+):
     if not destinatario:
-        print("⚠️ Sin destinatario")
+        print("⚠️ Sin destinatario — email no enviado")
         return
     if not RESEND_API_KEY:
         print("❌ RESEND_API_KEY no configurada en Railway")
         return
 
     resend.api_key = RESEND_API_KEY
-    hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    html = _construir_html(payload, alertas, hora)
+    hora  = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    html  = _construir_html(payload, alertas, hora, paciente)
+    nombre = _nombre_completo(paciente)
 
     attachments = []
-    pdf_bytes   = _generar_pdf(payload, alertas)
+    pdf_bytes   = _generar_pdf(payload, alertas, paciente)
     if pdf_bytes:
         nombre_pdf = f"reporte_posta_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
         attachments.append({"filename": nombre_pdf, "content": list(pdf_bytes)})
@@ -371,7 +453,7 @@ async def enviar_email_familiar(payload: dict, alertas: list, destinatario: str 
         params = {
             "from":    f"Monitor IoT Posta Médica <{EMAIL_REMITENTE}>",
             "to":      [destinatario],
-            "subject": f"Reporte de salud — Juan Carlos Rodriguez Gomez · {hora[:16]}",
+            "subject": f"Reporte de salud — {nombre} · {hora[:16]}",
             "html":    html,
         }
         reply_to = os.environ.get("EMAIL_REPLY_TO", "")
@@ -382,7 +464,7 @@ async def enviar_email_familiar(payload: dict, alertas: list, destinatario: str 
 
         loop     = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: resend.Emails.send(params))
-        print(f"📧 Email enviado a {destinatario} — id: {response.get('id','?')}")
+        print(f"📧 Email enviado a {destinatario} — id: {response.get('id', '?')}")
 
     except Exception as e:
         print(f"❌ Error Resend: {e}")
