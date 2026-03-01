@@ -7,28 +7,28 @@ import TooltipPersonalizado from "../components/TooltipPersonalizado";
 import { EstadoLive, DatosSuero, DatosVitales, EstadoVital } from "../tipos";
 
 interface Props {
-  live:             EstadoLive;
-  historialSuero:   DatosSuero[];
-  historialVitales: DatosVitales[];
+  live:              EstadoLive;
+  historialSuero?:   DatosSuero[];
+  historialVitales?: DatosVitales[];
 }
 
-const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
+const Monitor = ({ live, historialSuero = [], historialVitales = [] }: Props) => {
   if (!live) return null;
 
-  // Gráficas usan sus historials propios — ya vienen limpios sin nulls
-  const datosFC   = historialVitales.filter(h => h.fc   > 0);
-  const datosSpo2 = historialVitales.filter(h => h.spo2 > 0);
-  const datosPeso = historialSuero.filter(h => h.peso  >= 0);
+  const datosFC   = (historialVitales ?? []).filter(h => h.fc   > 0);
+  const datosSpo2 = (historialVitales ?? []).filter(h => h.spo2 > 0);
+  const datosPeso = (historialSuero   ?? []).filter(h => h.peso >= 0);
 
   const fcMostrar   = live.fc   > 0 ? live.fc   : 0;
   const spo2Mostrar = live.spo2 > 0 ? live.spo2 : 0;
   const pesoMostrar = live.peso >= 0 ? live.peso : 0;
 
-  const estadoFC: EstadoVital     = fcMostrar   < 60 ? "critical" : fcMostrar   > 100 ? "warn" : "ok";
-  const estadoSpO2: EstadoVital   = spo2Mostrar < 90 ? "critical" : spo2Mostrar < 95  ? "warn" : "ok";
-  const estadoFluido: EstadoVital = pesoMostrar < 50 ? "critical" : pesoMostrar < 100 ? "warn" : "ok";
+  const estadoFC:     EstadoVital = fcMostrar   < 60 ? "critical" : fcMostrar   > 100 ? "warn" : "ok";
+  const estadoSpO2:   EstadoVital = spo2Mostrar < 90 ? "critical" : spo2Mostrar < 95  ? "warn" : "ok";
+  // Umbrales alineados con ESP32: bomba activa ≤100g, crítico ≤50g
+  const estadoFluido: EstadoVital = pesoMostrar <= 100 ? "critical" : pesoMostrar <= 150 ? "warn" : "ok";
 
-  const estadoFCReal: EstadoVital   = fcMostrar   === 0 ? "ok" : estadoFC;
+  const estadoFCReal:   EstadoVital = fcMostrar   === 0 ? "ok" : estadoFC;
   const estadoSpo2Real: EstadoVital = spo2Mostrar === 0 ? "ok" : estadoSpO2;
 
   const coloresEstado: Record<EstadoVital, string> = {
@@ -55,17 +55,17 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
             display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
           }}>👤</div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Paciente - Consultorio General</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Paciente — Consultorio General</div>
             <div style={{ fontSize: 11, color: "#4b5563", fontFamily: "'JetBrains Mono', monospace" }}>
-              Posta Médica
+              Posta Médica · Monitor en tiempo real
             </div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <InsigniaAlerta label={fcMostrar   > 0 ? `FC ${fcMostrar} bpm`         : "FC Sin sensor"}   type={estadoFCReal} />
-          <InsigniaAlerta label={spo2Mostrar > 0 ? `SpO2 ${spo2Mostrar}%`        : "SpO2 Sin sensor"} type={estadoSpo2Real} />
-          <InsigniaAlerta label={`IV ${pesoMostrar.toFixed(1)}g`}                                      type={estadoFluido} />
-          <InsigniaAlerta label={live.bomba ? "BOMBA ACTIVA" : "BOMBA OFF"}                           type={live.bomba ? "warn" : "ok"} />
+          <InsigniaAlerta label={fcMostrar   > 0 ? `FC ${fcMostrar} bpm`        : "FC Sin sensor"}   type={estadoFCReal} />
+          <InsigniaAlerta label={spo2Mostrar > 0 ? `SpO2 ${spo2Mostrar}%`       : "SpO2 Sin sensor"} type={estadoSpo2Real} />
+          <InsigniaAlerta label={`IV ${pesoMostrar.toFixed(1)}g`}                                     type={estadoFluido} />
+          <InsigniaAlerta label={live.bomba ? "BOMBA ACTIVA" : "BOMBA OFF"}                          type={live.bomba ? "warn" : "ok"} />
         </div>
       </div>
 
@@ -143,24 +143,58 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
           </div>
           <BarraFluido peso={pesoMostrar} />
           <div style={{ marginTop: 10 }}>
-            <InsigniaAlerta label={estadoFluido === "ok" ? "Nivel OK" : estadoFluido === "warn" ? "Nivel bajo" : "Nivel crítico"} type={estadoFluido} />
+            <InsigniaAlerta
+              label={estadoFluido === "ok" ? "Nivel OK" : estadoFluido === "warn" ? "Nivel bajo" : "Nivel crítico"}
+              type={estadoFluido}
+            />
           </div>
         </div>
 
-        {/* Bomba */}
+        {/* Bomba — con pulso visual cuando activa */}
         <div className="card" style={{
-          background: "rgba(13,17,28,0.8)",
-          border: `1px solid ${live.bomba ? "#f59e0b30" : "#10b98130"}`,
+          background: live.bomba
+            ? "rgba(245,158,11,0.05)"
+            : "rgba(13,17,28,0.8)",
+          border: `1px solid ${live.bomba ? "#f59e0b40" : "#10b98130"}`,
           borderRadius: 16, padding: "20px", position: "relative", overflow: "hidden",
+          transition: "all 0.4s ease",
         }}>
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${live.bomba ? "#f59e0b" : "#10b981"}, transparent)` }} />
-          <div style={{ fontSize: 10, color: "#6b7280", letterSpacing: "0.1em", fontFamily: "'JetBrains Mono', monospace", marginBottom: 8 }}>BOMBA PERISTÁLTICA</div>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>{live.bomba ? "⚙️" : "✅"}</div>
+
+          <div style={{ fontSize: 10, color: "#6b7280", letterSpacing: "0.1em", fontFamily: "'JetBrains Mono', monospace", marginBottom: 10 }}>BOMBA PERISTÁLTICA</div>
+
+          {/* Icono con anillo pulsante si bomba activa */}
+          <div style={{ position: "relative", display: "inline-block", marginBottom: 10 }}>
+            <div style={{ fontSize: 32 }}>{live.bomba ? "⚙️" : "✅"}</div>
+            {live.bomba && (
+              <div style={{
+                position: "absolute", inset: -6,
+                borderRadius: "50%",
+                border: "2px solid #f59e0b",
+                animation: "ping 1.2s ease-in-out infinite",
+                opacity: 0.6,
+              }} />
+            )}
+          </div>
+
           <div style={{ fontSize: 22, fontWeight: 800, color: live.bomba ? "#f59e0b" : "#10b981", fontFamily: "'JetBrains Mono', monospace" }}>
             {live.bomba ? "ACTIVA" : "STANDBY"}
           </div>
-          <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>
             {live.bomba ? "Transfiriendo fluido de respaldo" : "Nivel de fluido suficiente"}
+          </div>
+
+          {/* Barra de estado */}
+          <div style={{
+            marginTop: 14, padding: "6px 10px",
+            background: live.bomba ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)",
+            border: `1px solid ${live.bomba ? "rgba(245,158,11,0.2)" : "rgba(16,185,129,0.2)"}`,
+            borderRadius: 6, fontSize: 9,
+            color: live.bomba ? "#f59e0b" : "#10b981",
+            fontFamily: "'JetBrains Mono', monospace",
+            letterSpacing: "0.08em",
+          }}>
+            {live.bomba ? "● AUTO — Activada por ESP32" : "○ STANDBY — En espera"}
           </div>
         </div>
       </div>
@@ -168,7 +202,7 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
       {/* Gráficas */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
 
-        {/* Gráfica FC */}
+        {/* FC */}
         <div className="card" style={{
           background: "rgba(13,17,28,0.8)", border: "1px solid rgba(244,63,94,0.15)",
           borderRadius: 16, padding: "20px",
@@ -196,7 +230,7 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
           </ResponsiveContainer>
         </div>
 
-        {/* Gráfica SpO2 */}
+        {/* SpO2 */}
         <div className="card" style={{
           background: "rgba(13,17,28,0.8)", border: "1px solid rgba(0,229,255,0.15)",
           borderRadius: 16, padding: "20px",
@@ -224,19 +258,19 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
           </ResponsiveContainer>
         </div>
 
-        {/* Gráfica Fluido IV */}
+        {/* Fluido IV — ancho completo */}
         <div className="card" style={{
           background: "rgba(13,17,28,0.8)", border: "1px solid rgba(167,139,250,0.15)",
           borderRadius: 16, padding: "20px", gridColumn: "1 / -1",
         }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa", marginBottom: 4 }}>Nivel de Fluido IV</div>
           <div style={{ fontSize: 10, color: "#4b5563", fontFamily: "'JetBrains Mono', monospace", marginBottom: 16 }}>
-            Umbral bomba: 100g · Crítico: 50g — actualización c/1s
+            Alerta: 150g · Bomba ON / Crítico: 100g — actualización c/1s
           </div>
           <ResponsiveContainer width="100%" height={120}>
             <AreaChart data={datosPeso} margin={{ top: 5, right: 60, bottom: 0, left: -20 }}>
               <defs>
-                <linearGradient id="gradPeso" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="gradPesoMon" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
                 </linearGradient>
@@ -245,13 +279,22 @@ const Monitor = ({ live, historialSuero, historialVitales }: Props) => {
               <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#374151" }} interval={9} />
               <YAxis domain={[0, 500]} tick={{ fontSize: 9, fill: "#374151" }} />
               <Tooltip content={<TooltipPersonalizado unit="g" color="#a78bfa" />} />
-              <ReferenceLine y={100} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: "Umbral bomba", fontSize: 9, fill: "#f59e0b", position: "right" }} />
-              <ReferenceLine y={50}  stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: "Crítico",      fontSize: 9, fill: "#ef4444", position: "right" }} />
-              <Area type="monotone" dataKey="peso" stroke="#a78bfa" strokeWidth={2} fill="url(#gradPeso)" dot={false} />
+              <ReferenceLine y={150} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: "Alerta 150g", fontSize: 9, fill: "#f59e0b", position: "right" }} />
+              <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="4 4" strokeOpacity={0.6} label={{ value: "Crítico 100g",      fontSize: 9, fill: "#ef4444", position: "right" }} />
+              <Area type="monotone" dataKey="peso" stroke="#a78bfa" strokeWidth={2} fill="url(#gradPesoMon)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* CSS pulso bomba */}
+      <style>{`
+        @keyframes ping {
+          0%   { transform: scale(1);   opacity: 0.6; }
+          70%  { transform: scale(1.8); opacity: 0; }
+          100% { transform: scale(1.8); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 };

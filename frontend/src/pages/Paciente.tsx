@@ -2,10 +2,13 @@ import { useState } from "react";
 import InsigniaAlerta from "../components/InsigniaAlerta";
 import BarraFluido from "../components/BarraFluido";
 import EscenaPaciente from "../components/EscenaPaciente";
-import { PacienteInfo, EstadoLive } from "../tipos";
+import { PacienteInfo, EstadoLive, Alerta } from "../tipos";
 import { enviarComando, enviarEmail } from "../services/api";
 
-interface Props { live: EstadoLive; }
+interface Props {
+  live:    EstadoLive;
+  alertas?: Alerta[];   // ✅ recibe alertas reales para el reporte
+}
 
 const datosIniciales: PacienteInfo = {
   nombre: "Juan Carlos", apellido: "Rodriguez Gomez",
@@ -31,7 +34,7 @@ const TopBar = ({ color }: { color: string }) => (
   <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,transparent,${color},transparent)` }}/>
 );
 
-const Paciente = ({ live }: Props) => {
+const Paciente = ({ live, alertas = [] }: Props) => {
   if (!live) return null;
 
   const [paciente, setPaciente] = useState<PacienteInfo>(datosIniciales);
@@ -48,7 +51,8 @@ const Paciente = ({ live }: Props) => {
   const guardar  = () => { setPaciente(temp); setEditando(false); };
   const cancelar = () => { setTemp(paciente); setEditando(false); };
 
-  const fluidoStatus = live.peso < 50 ? "critical" : live.peso < 100 ? "warn" : "ok";
+  // Umbrales alineados con ESP32 y Monitor
+  const fluidoStatus = live.peso <= 100 ? "critical" : live.peso <= 150 ? "warn" : "ok";
   const bombaOn      = live.bomba;
   const estadoBomba  = bombaOn ? "AUTO — Bomba activa por ESP32" : "STANDBY — Bomba en espera";
 
@@ -69,7 +73,8 @@ const Paciente = ({ live }: Props) => {
     setEnviandoEmail(true);
     setEmailOk(null);
     try {
-      await enviarEmail(emailDest, live, []);
+      // ✅ CORREGIDO: pasa las alertas reales, no []
+      await enviarEmail(emailDest, live, alertas);
       setEmailOk("✅ Correo enviado correctamente");
       setTimeout(() => { setModalEmail(false); setEmailOk(null); setEmailDest(""); }, 2000);
     } catch {
@@ -84,6 +89,10 @@ const Paciente = ({ live }: Props) => {
     color: "#e2e8f0", borderRadius: 6, padding: "5px 9px",
     fontSize: 11, fontFamily: "'JetBrains Mono', monospace", width: "100%", outline: "none",
   };
+
+  // Conteo alertas para preview del email
+  const alertasCriticas  = alertas.filter(a => ["SUERO_CRITICO","FC_ALTA","FC_BAJA","SPO2_BAJA"].includes(a.tipo)).length;
+  const alertasTotal     = alertas.length;
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -219,7 +228,7 @@ const Paciente = ({ live }: Props) => {
               </div>
               <div style={{ marginTop: 7, fontSize: 10, color: "#4b5563", display: "flex", gap: 12 }}>
                 <span><span style={{ color: "#f59e0b" }}>▸</span> Advertencia: 150g</span>
-                <span><span style={{ color: "#ef4444" }}>▸</span> Estado Crítico: 100g</span>
+                <span><span style={{ color: "#ef4444" }}>▸</span> Bomba ON / Crítico: 100g</span>
               </div>
             </div>
 
@@ -284,7 +293,7 @@ const Paciente = ({ live }: Props) => {
             background: "#0d111c",
             border: "1px solid rgba(0,229,255,0.2)",
             borderRadius: 16, padding: 28,
-            width: 400, position: "relative",
+            width: 420, position: "relative",
           }}>
             <div style={{
               position: "absolute", top: 0, left: 0, right: 0, height: 2,
@@ -318,18 +327,28 @@ const Paciente = ({ live }: Props) => {
               />
             </div>
 
+            {/* ✅ Preview del contenido del reporte */}
             <div style={{
               background: "rgba(0,229,255,0.04)",
               border: "1px solid rgba(0,229,255,0.1)",
-              borderRadius: 8, padding: "10px 14px", marginBottom: 16,
+              borderRadius: 8, padding: "12px 14px", marginBottom: 16,
               fontSize: 11, color: "#6b7280",
               fontFamily: "'JetBrains Mono', monospace",
             }}>
-              <div>Paciente: <span style={{ color: "#e2e8f0" }}>{paciente.nombre} {paciente.apellido}</span></div>
+              <div style={{ color: "#9ca3af", marginBottom: 8, fontSize: 10, letterSpacing: "0.1em" }}>CONTENIDO DEL REPORTE</div>
+              <div style={{ marginBottom: 4 }}>
+                👤 <span style={{ color: "#e2e8f0" }}>{paciente.nombre} {paciente.apellido}</span>
+                <span style={{ color: "#374151" }}> · {paciente.id}</span>
+              </div>
+              <div style={{ marginBottom: 4 }}>
+                ❤️ FC: <span style={{ color: "#f43f5e" }}>{live.fc > 0 ? live.fc + " bpm" : "--"}</span>
+                {"  "}🫁 SpO2: <span style={{ color: "#00e5ff" }}>{live.spo2 > 0 ? live.spo2 + "%" : "--"}</span>
+                {"  "}💧 IV: <span style={{ color: "#a78bfa" }}>{live.peso.toFixed(1)}g</span>
+              </div>
               <div>
-                FC: <span style={{ color: "#f43f5e" }}>{live.fc > 0 ? live.fc + " bpm" : "--"}</span>
-                {"  "}SpO2: <span style={{ color: "#00e5ff" }}>{live.spo2 > 0 ? live.spo2 + "%" : "--"}</span>
-                {"  "}IV: <span style={{ color: "#a78bfa" }}>{live.peso.toFixed(1)}g</span>
+                📋 Alertas: <span style={{ color: alertasCriticas > 0 ? "#ef4444" : "#10b981" }}>
+                  {alertasTotal > 0 ? `${alertasTotal} total (${alertasCriticas} críticas)` : "Sin alertas"}
+                </span>
               </div>
             </div>
 

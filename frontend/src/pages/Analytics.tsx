@@ -3,8 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart,
 } from "recharts";
-import { EstadoLive, DatosVitales } from "../tipos";
-import { DatosSuero } from "../hooks/useLecturas";
+import { EstadoLive, DatosVitales, DatosSuero } from "../tipos";
 
 interface Props {
   live:              EstadoLive;
@@ -49,8 +48,8 @@ function detectarAnomalia(tasas: number[]) {
 const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) => {
 
   // ── Vitales ──────────────────────────────────────────
-  const datos  = (historialVitales ?? []).filter(h => h.fc > 0 && h.spo2 > 0);
-  const total  = datos.length || 1;
+  const datos = (historialVitales ?? []).filter(h => h.fc > 0 && h.spo2 > 0);
+  const total = datos.length || 1;
 
   const promedioFC   = (datos.reduce((a, b) => a + b.fc,   0) / total).toFixed(0);
   const promedioSpO2 = (datos.reduce((a, b) => a + b.spo2, 0) / total).toFixed(1);
@@ -71,17 +70,17 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
     {
       titulo: "Interpretación FC", color: "#f43f5e",
       items: [
-        { label: "Rango normal",    valor: "60–100 bpm",          ok: true },
-        { label: "Promedio actual", valor: `${promedioFC} bpm`,   ok: +promedioFC >= 60 && +promedioFC <= 100 },
+        { label: "Rango normal",    valor: "60–100 bpm",           ok: true },
+        { label: "Promedio actual", valor: `${promedioFC} bpm`,    ok: +promedioFC >= 60 && +promedioFC <= 100 },
         { label: "Variabilidad",    valor: `${maxFC - minFC} bpm`, ok: maxFC - minFC < 30 },
       ],
     },
     {
       titulo: "Interpretación SpO2", color: "#00e5ff",
       items: [
-        { label: "Rango normal",      valor: "≥ 95%",            ok: true },
-        { label: "Promedio actual",   valor: `${promedioSpO2}%`, ok: +promedioSpO2 >= 95 },
-        { label: "Mínimo registrado", valor: `${minSpO2}%`,      ok: +minSpO2 >= 90 },
+        { label: "Rango normal",      valor: "≥ 95%",             ok: true },
+        { label: "Promedio actual",   valor: `${promedioSpO2}%`,  ok: +promedioSpO2 >= 95 },
+        { label: "Mínimo registrado", valor: `${minSpO2}%`,       ok: +minSpO2 >= 90 },
       ],
     },
   ];
@@ -103,14 +102,16 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
     const pesoActual = datos[datos.length - 1].peso;
     const base = intercepto + pendiente * (datos.length - 1);
     const minHastaCritico = pendiente < 0 ? Math.max(0, +(((100 - base) / -(pendiente * 60)).toFixed(0))) : null;
-    const minHastaVacio   = pendiente < 0 ? Math.max(0, +((( 0  - base) / -(pendiente * 60)).toFixed(0))) : null;
+    const minHastaVacio   = pendiente < 0 ? Math.max(0, +(((0   - base) / -(pendiente * 60)).toFixed(0))) : null;
     const tendencia = datos.map((d, i) => ({
       ...d, tendencia: +(intercepto + pendiente * i).toFixed(1),
     }));
+    // ✅ Color urgente si falta poco para crítico
+    const colorCritico = minHastaCritico !== null && minHastaCritico < 30 ? "#ef4444" : "#f59e0b";
     return {
       r2: +r2.toFixed(3), tasaGxMin: +tasaGxMin.toFixed(2),
       claseGoteo, colorGoteo, anomalia, zScore, pesoActual,
-      minHastaCritico, minHastaVacio,
+      minHastaCritico, minHastaVacio, colorCritico,
       tendencia, muestras: datos.length,
     };
   }, [historialSuero]);
@@ -158,7 +159,7 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
         </p>
       </div>
 
-      {/* ── SECCIÓN 1: Estadísticas de vitales ── */}
+      {/* ── SECCIÓN 1: Estadísticas vitales ── */}
       <SectionLabel text="SIGNOS VITALES — ESTADÍSTICAS" color="#00e5ff" />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 24 }}>
@@ -171,7 +172,7 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
         ))}
       </div>
 
-      {/* ── SECCIÓN 2: Gráfica comparativa FC + SpO2 ── */}
+      {/* ── SECCIÓN 2: Gráfica FC + SpO2 ── */}
       <Card style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 16, color: "#e2e8f0" }}>FC y SpO2 — Vista Comparativa</div>
         {datos.length === 0 ? (
@@ -199,7 +200,7 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
         )}
       </Card>
 
-      {/* ── SECCIÓN 3: Paneles de interpretación clínica ── */}
+      {/* ── SECCIÓN 3: Interpretación clínica ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 8 }}>
         {paneles.map((panel, i) => (
           <Card key={i} style={{ border: `1px solid ${panel.color}20` }}>
@@ -223,9 +224,9 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
 
       {mlSuero ? (
         <>
-          {/* Tarjetas ML */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
 
+            {/* Tasa de goteo */}
             <Card style={{ borderTop: `2px solid ${mlSuero.colorGoteo}` }}>
               <MetaLabel text="Tasa de goteo" />
               <div style={{ fontSize: 30, fontWeight: 800, color: mlSuero.colorGoteo, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>{mlSuero.tasaGxMin}</div>
@@ -235,15 +236,20 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
               </div>
             </Card>
 
-            <Card style={{ borderTop: "2px solid #f59e0b" }}>
+            {/* ✅ Tiempo hasta crítico — rojo si < 30 min */}
+            <Card style={{ borderTop: `2px solid ${mlSuero.colorCritico}` }}>
               <MetaLabel text="Tiempo hasta crítico" />
-              <div style={{ fontSize: 30, fontWeight: 800, color: mlSuero.minHastaCritico !== null ? "#f59e0b" : "#6b7280", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
+              <div style={{ fontSize: 30, fontWeight: 800, color: mlSuero.minHastaCritico !== null ? mlSuero.colorCritico : "#6b7280", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
                 {mlSuero.minHastaCritico !== null ? mlSuero.minHastaCritico : "—"}
               </div>
               <div style={{ fontSize: 10, color: "#4b5563", marginTop: 3 }}>minutos</div>
-              <div style={{ fontSize: 9, color: "#374151", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>umbral: 100g</div>
+              <div style={{ fontSize: 9, marginTop: 6, fontFamily: "'JetBrains Mono', monospace",
+                color: mlSuero.minHastaCritico !== null && mlSuero.minHastaCritico < 30 ? "#ef4444" : "#374151" }}>
+                {mlSuero.minHastaCritico !== null && mlSuero.minHastaCritico < 30 ? "⚠ URGENTE" : "umbral: 100g"}
+              </div>
             </Card>
 
+            {/* Tiempo hasta vacío */}
             <Card style={{ borderTop: "2px solid #ef4444" }}>
               <MetaLabel text="Tiempo hasta vacío" />
               <div style={{ fontSize: 30, fontWeight: 800, color: mlSuero.minHastaVacio !== null ? "#ef4444" : "#6b7280", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
@@ -253,6 +259,7 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
               <div style={{ fontSize: 9, color: "#374151", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>peso: {mlSuero.pesoActual.toFixed(0)}g</div>
             </Card>
 
+            {/* Anomalía */}
             <Card style={{ borderTop: `2px solid ${mlSuero.anomalia ? "#ef4444" : "#10b981"}` }}>
               <MetaLabel text="Anomalía en goteo" />
               <div style={{ fontSize: 30, fontWeight: 800, color: mlSuero.anomalia ? "#ef4444" : "#10b981", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
@@ -265,7 +272,7 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
             </Card>
           </div>
 
-          {/* Gráfica peso + línea de tendencia ML */}
+          {/* Gráfica peso + tendencia */}
           <Card>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>Fluido IV — Peso real + Línea de tendencia</div>
@@ -278,7 +285,7 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={mlSuero.tendencia} margin={{ top: 5, right: 20, bottom: 0, left: -10 }}>
                 <defs>
-                  <linearGradient id="gradPeso" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="gradPesoML" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
                   </linearGradient>
@@ -290,9 +297,9 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
                   contentStyle={{ background: "rgba(10,14,26,0.95)", border: "1px solid #1e2436", borderRadius: 8, fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}
                   formatter={(val: any, name?: string) => [`${Number(val).toFixed(1)}g`, name === "peso" ? "Peso real" : "Tendencia ML"] as [string, string]}
                 />
-                <ReferenceLine y={150} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: "ALERTA 150g",  position: "right", fontSize: 9, fill: "#f59e0b" }} />
-                <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="4 2" label={{ value: "CRÍTICO 100g", position: "right", fontSize: 9, fill: "#ef4444" }} />
-                <Area type="monotone" dataKey="peso"      stroke="#a78bfa" strokeWidth={2} fill="url(#gradPeso)" dot={false} name="peso" />
+                <ReferenceLine y={150} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: "Alerta 150g",   position: "right", fontSize: 9, fill: "#f59e0b" }} />
+                <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="4 2" label={{ value: "CRÍTICO 100g",  position: "right", fontSize: 9, fill: "#ef4444" }} />
+                <Area type="monotone" dataKey="peso"      stroke="#a78bfa" strokeWidth={2} fill="url(#gradPesoML)" dot={false} name="peso" />
                 <Line type="monotone" dataKey="tendencia" stroke="#f59e0b" strokeWidth={1.5} dot={false} strokeDasharray="5 3" name="tendencia" />
               </AreaChart>
             </ResponsiveContainer>
@@ -309,7 +316,6 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) 
           <div style={{ color: "#374151", fontSize: 11, marginTop: 4, fontFamily: "'JetBrains Mono', monospace" }}>Se necesitan al menos 5 lecturas del HX711</div>
         </Card>
       )}
-
     </div>
   );
 };

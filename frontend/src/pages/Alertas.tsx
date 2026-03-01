@@ -22,10 +22,10 @@ function emoji(tipo: string): string {
   return map[tipo] ?? "⚠️";
 }
 
-function esTipoVital(tipo: string)  { return ["FC_ALTA","FC_BAJA","SPO2_BAJA"].includes(tipo); }
-function esTipoSuero(tipo: string)  { return ["SUERO_CRITICO","SUERO_BAJO","BOMBA_ON"].includes(tipo); }
+function esTipoVital(tipo: string) { return ["FC_ALTA","FC_BAJA","SPO2_BAJA"].includes(tipo); }
+function esTipoSuero(tipo: string) { return ["SUERO_CRITICO","SUERO_BAJO","BOMBA_ON"].includes(tipo); }
 
-// Agrupa alertas consecutivas del mismo tipo
+// Agrupa alertas CONSECUTIVAS del mismo tipo → badge ×N
 function agrupar(alertas: Alerta[]) {
   const grupos: { alerta: Alerta; count: number; key: string }[] = [];
   for (const a of alertas) {
@@ -40,14 +40,15 @@ function agrupar(alertas: Alerta[]) {
 }
 
 const Alertas = ({ alertas, limpiarAlertas }: Props) => {
-  const [filtro, setFiltro]       = useState<Filtro>("todas");
-  const [nuevas, setNuevas]       = useState<Set<number>>(new Set());
-  const prevLengthRef             = useRef(alertas.length);
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [nuevas, setNuevas] = useState<Set<number>>(new Set());
+  const prevLengthRef       = useRef(alertas.length);
 
-  // Detectar alertas nuevas → flash
+  // ✅ CORREGIDO: las nuevas alertas están al FINAL del array
   useEffect(() => {
     if (alertas.length > prevLengthRef.current) {
-      const ids = new Set(alertas.slice(0, alertas.length - prevLengthRef.current).map(a => a.id));
+      const diff = alertas.length - prevLengthRef.current;
+      const ids  = new Set(alertas.slice(alertas.length - diff).map(a => a.id));
       setNuevas(ids);
       const t = setTimeout(() => setNuevas(new Set()), 1200);
       prevLengthRef.current = alertas.length;
@@ -105,8 +106,6 @@ const Alertas = ({ alertas, limpiarAlertas }: Props) => {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Registro de Alertas</h2>
-
-          {/* Conteo por categoría */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
             {criticos > 0 && (
               <span style={{
@@ -130,7 +129,7 @@ const Alertas = ({ alertas, limpiarAlertas }: Props) => {
             )}
             {alertas.length === 0 && (
               <span style={{ fontSize: 11, color: "#4b5563", fontFamily: "'JetBrains Mono', monospace" }}>
-                Sin eventos
+                Sin eventos registrados
               </span>
             )}
           </div>
@@ -148,9 +147,9 @@ const Alertas = ({ alertas, limpiarAlertas }: Props) => {
       {/* Filtros */}
       {alertas.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {btnFiltro("todas",   "Todas",   alertas.length,                                              "#e2e8f0")}
-          {btnFiltro("vitales", "Vitales", alertas.filter(a => esTipoVital(a.tipo)).length,  "#f43f5e")}
-          {btnFiltro("suero",   "Suero",   alertas.filter(a => esTipoSuero(a.tipo)).length,  "#a78bfa")}
+          {btnFiltro("todas",   "Todas",   alertas.length,                                             "#e2e8f0")}
+          {btnFiltro("vitales", "Vitales", alertas.filter(a => esTipoVital(a.tipo)).length, "#f43f5e")}
+          {btnFiltro("suero",   "Suero",   alertas.filter(a => esTipoSuero(a.tipo)).length, "#a78bfa")}
         </div>
       )}
 
@@ -174,7 +173,7 @@ const Alertas = ({ alertas, limpiarAlertas }: Props) => {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {agrupadas.map(({ alerta, count, key }) => {
-            const sev    = severidad(alerta.tipo);
+            const sev     = severidad(alerta.tipo);
             const esNueva = nuevas.has(alerta.id);
             return (
               <div
@@ -222,7 +221,6 @@ const Alertas = ({ alertas, limpiarAlertas }: Props) => {
         </div>
       )}
 
-      {/* CSS animación flash */}
       <style>{`
         @keyframes pulseAlert {
           0%   { transform: scale(1); }

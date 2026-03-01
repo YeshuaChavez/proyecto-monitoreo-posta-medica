@@ -1,41 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Alerta } from "../tipos";
+import { Alerta, DatosSuero, DatosVitales, EstadoLive } from "../tipos";
 import { API, getSuero, getVitales, getAlertas } from "../services/api";
 
 const SIMULAR = false;
 
-// ── Tipos locales alineados con las tablas separadas ──────────
-export interface DatosSuero {
-  id:           number;
-  timestamp:    string;
-  time:         string;
-  peso:         number;
-  bomba:        boolean;
-  estado_suero: string;
-}
-
-export interface DatosVitales {
-  id:             number;
-  timestamp:      string;
-  time:           string;
-  fc:             number;
-  spo2:           number;
-  estado_vitales: string;
-}
-
-// Estado combinado que usa el dashboard para mostrar todo junto
-export interface EstadoLive {
-  // suero
-  peso:          number;
-  bomba:         boolean;
-  estado_suero:  string;
-  // vitales
-  fc:            number;
-  spo2:          number;
-  estado_vitales: string;
-  // meta
-  timestamp:     string;
-}
+// DatosSuero, DatosVitales y EstadoLive vienen de ../tipos
+// — ya no se definen aquí para evitar duplicación
 
 function generarSimulado(prev: EstadoLive): EstadoLive {
   return {
@@ -56,7 +26,6 @@ export function useLecturas() {
     timestamp: "",
   });
 
-  // Historial separado por tabla
   const [historialSuero,   setHistorialSuero]   = useState<DatosSuero[]>([]);
   const [historialVitales, setHistorialVitales] = useState<DatosVitales[]>([]);
   const [alertas,          setAlertas]          = useState<Alerta[]>([]);
@@ -65,7 +34,7 @@ export function useLecturas() {
   const wsRef  = useRef<WebSocket | null>(null);
   const simRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Últimos vitales conocidos — persiste entre actualizaciones de suero
+  // Últimos vitales conocidos — persiste entre actualizaciones de suero (c/1s)
   const ultimosVitalesRef = useRef<DatosVitales | null>(null);
 
   const cargarHistorial = useCallback(async () => {
@@ -83,7 +52,7 @@ export function useLecturas() {
       }
       if (alts?.length) setAlertas(alts);
 
-      // Estado inicial combinado
+      // Estado inicial combinado con lo último de cada tabla
       const ultimoSuero   = suero?.[suero.length - 1];
       const ultimoVitales = vitales?.[vitales.length - 1];
 
@@ -99,6 +68,7 @@ export function useLecturas() {
   }, []);
 
   useEffect(() => {
+    // ── MODO SIMULADO ───────────────────────────────────────
     if (SIMULAR) {
       simRef.current = setInterval(() => {
         setLive(prev => {
@@ -113,6 +83,7 @@ export function useLecturas() {
       return () => { if (simRef.current) clearInterval(simRef.current); };
     }
 
+    // ── MODO REAL ───────────────────────────────────────────
     cargarHistorial();
 
     function conectar() {
@@ -130,35 +101,27 @@ export function useLecturas() {
 
           // ── Suero (cada 1s) → tabla suero ──────────────────
           if (msg.type === "lectura" && msg.data) {
-            const s: DatosSuero = msg.data;
-
-            // Actualizar historial de suero
+            const s = msg.data as DatosSuero;
             setHistorialSuero(h => [...h.slice(-59), s]);
-
-            // Actualizar live: peso/bomba del mensaje + fc/spo2 del ref
             setLive(prev => ({
               ...prev,
               peso:          s.peso,
               bomba:         s.bomba,
               estado_suero:  s.estado_suero,
               timestamp:     s.timestamp,
-              // vitales: conservar último promedio conocido
-              fc:   ultimosVitalesRef.current?.fc   ?? prev.fc,
-              spo2: ultimosVitalesRef.current?.spo2 ?? prev.spo2,
+              // vitales: conservar último promedio conocido (llegan c/10s)
+              fc:             ultimosVitalesRef.current?.fc             ?? prev.fc,
+              spo2:           ultimosVitalesRef.current?.spo2           ?? prev.spo2,
               estado_vitales: ultimosVitalesRef.current?.estado_vitales ?? prev.estado_vitales,
             }));
           }
 
           // ── Vitales (cada 10s) → tabla vitales ─────────────
           if (msg.type === "vitales" && msg.data) {
-            const v: DatosVitales = msg.data;
-
+            const v = msg.data as DatosVitales;
             if (v.fc > 0) {
-              // Actualizar ref y historial de vitales
               ultimosVitalesRef.current = v;
               setHistorialVitales(h => [...h.slice(-59), v]);
-
-              // Actualizar live: fc/spo2 del promedio + peso/bomba actuales
               setLive(prev => ({
                 ...prev,
                 fc:             v.fc,
@@ -196,8 +159,8 @@ export function useLecturas() {
 
   return {
     live,
-    historialSuero,    // para gráfica de peso
-    historialVitales,  // para gráfica de FC/SpO2
+    historialSuero,    // DatosSuero[]   — para gráfica de peso
+    historialVitales,  // DatosVitales[] — para gráfica FC/SpO2
     alertas,
     setAlertas,
     conectado,
