@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from database import SessionLocal, init_db
-from models import Suero, Vitales, Alerta, Config, Usuario
+from models import Suero, Vitales, Alerta, Config, Usuario, Paciente
 from mqtt_client import MQTTManager
 from telegram_bot import polling
 
@@ -225,7 +225,7 @@ class ComandoRequest(BaseModel):
     cmd:    str
     origen: str = "dashboard"  # dashboard | telegram | voz
 
-COMANDOS_VALIDOS = {"bomba_on", "bomba_off", "reset"}
+COMANDOS_VALIDOS = {"bomba_on", "bomba_off", "reset", "tare"}
 
 @app.post("/comandos")
 async def enviar_comando(body: ComandoRequest):
@@ -351,5 +351,155 @@ def login(body: LoginRequest):
         if not user:
             raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
         return user.to_dict()
+    finally:
+        db.close()
+
+# ═══════════════════════════════════════════════════════════════
+#  REST — PACIENTES 
+# ═══════════════════════════════════════════════════════════════
+
+class PacienteRequest(BaseModel):
+    nombre:            str
+    apellido:          str
+    codigo:            str
+    doctor:            str = ""
+    grupo_sanguineo:   str = ""
+    fecha_nacimiento:  str = ""
+    fecha_ingreso:     str = ""
+    direccion:         str = ""
+    contacto_nombre:   str = ""
+    contacto_telefono: str = ""
+    contacto_relacion: str = ""
+
+@app.get("/pacientes")
+def get_pacientes(solo_activos: bool = True):
+    db = SessionLocal()
+    try:
+        q = db.query(Paciente)
+        if solo_activos:
+            q = q.filter(Paciente.activo == True)
+        return [p.to_dict() for p in q.order_by(Paciente.id.desc()).all()]
+    finally:
+        db.close()
+
+@app.get("/pacientes/{paciente_id}")
+def get_paciente(paciente_id: int):
+    db = SessionLocal()
+    try:
+        p = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+        if not p:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        return p.to_dict()
+    finally:
+        db.close()
+
+@app.post("/pacientes")
+def crear_paciente(body: PacienteRequest):
+    db = SessionLocal()
+    try:
+        # Verificar código único
+        existe = db.query(Paciente).filter(Paciente.codigo == body.codigo).first()
+        if existe:
+            raise HTTPException(status_code=400, detail=f"El código {body.codigo} ya existe")
+        p = Paciente(**body.dict(), created_at=datetime.utcnow())
+        db.add(p)
+        db.commit()
+        db.refresh(p)
+        return p.to_dict()
+    finally:
+        db.close()
+
+@app.put("/pacientes/{paciente_id}")
+def actualizar_paciente(paciente_id: int, body: PacienteRequest):
+    db = SessionLocal()
+    try:
+        p = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+        if not p:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        # Verificar código único (excluyendo el mismo)
+        existe = db.query(Paciente).filter(
+            Paciente.codigo == body.codigo,
+            Paciente.id != paciente_id
+        ).first()
+        if existe:
+            raise HTTPException(status_code=400, detail=f"El código {body.codigo} ya existe")
+        for k, v in body.dict().items():
+            setattr(p, k, v)
+        db.commit()
+        db.refresh(p)
+        return p.to_dict()
+    finally:
+        db.close()
+
+@app.delete("/pacientes/{paciente_id}")
+def desactivar_paciente(paciente_id: int):
+    """Soft delete — marca como inactivo."""
+    db = SessionLocal()
+    try:
+        p = db.query(Paciente).filter(Paciente.id == paciente_id).first()
+        if not p:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        p.activo = False
+        db.commit()
+        return {"ok": True, "mensaje": f"Paciente {p.codigo} desactivado"}
+    finally:
+        db.close()
+
+# ═══════════════════════════════════════════════════════════════
+#  REST — SELECCIONAR PACIENTE ACTIVO + RESET
+# ═══════════════════════════════════════════════════════════════
+
+# Estado global: paciente actualmente en monitoreo
+_paciente_activo_id: int | None = None
+
+@app.get("/paciente-activo")
+def get_paciente_activo():
+    if _paciente_activo_id is None:
+        return {"paciente": None}
+    db = SessionLocal()
+    try:
+        p = db.query(Paciente).filter(Paciente.id == _paciente_activo_id).first()
+        return {"paciente": p.to_dict() if p else None}
+    finally:
+        db.close()
+
+class SeleccionarPacienteRequest(BaseModel):
+    paciente_id: int
+
+@app.post("/paciente-activo")
+async def seleccionar_paciente(body: SeleccionarPacienteRequest):
+    """
+    Selecciona el paciente activo y resetea el sistema:
+    1. Actualiza estado global
+    2. Manda reset al ESP32 (limpia bomba/alertas)
+    3. Broadcast a todos los clientes WebSocket
+    4. El frontend limpia su historial local
+    """
+    global _paciente_activo_id
+    db = SessionLocal()
+    try:
+        p = db.query(Paciente).filter(
+            Paciente.id == body.paciente_id,
+            Paciente.activo == True
+        ).first()
+        if not p:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+        _paciente_activo_id = p.id
+
+        # Actualizar fecha de ingreso al día de hoy
+        p.fecha_ingreso = datetime.now().strftime("%d-%m-%Y")
+        db.commit()
+
+        # 1. Reset físico del ESP32 (limpia bomba + alertas)
+        await mqtt_manager.publicar_comando("reset")
+
+        # 2. Broadcast a todos los WS — el frontend resetea su estado
+        await ws_manager.broadcast({
+            "type":    "paciente_activo",
+            "paciente": p.to_dict(),
+        })
+
+        return {"ok": True, "paciente": p.to_dict()}
     finally:
         db.close()
