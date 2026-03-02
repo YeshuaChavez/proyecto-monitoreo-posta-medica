@@ -311,22 +311,55 @@ const Administracion = ({ usuarioActual }: Props) => {
               ))}
 
               {/* Dropdown doctor — ocupa columna completa */}
-              <div style={{ gridColumn:"1/-1" }}>
-                <div style={{ fontSize:9, color:"#6b7280", fontFamily:"'JetBrains Mono', monospace", marginBottom:4, letterSpacing:"0.08em", display:"flex", alignItems:"center", gap:5 }}>
-                  <Stethoscope size={10} color="#6b7280"/> DOCTOR / ENFERMERO ASIGNADO
+              <div style={{ gridColumn: "1/-1", position: "relative" }}>
+                <div style={{
+                  fontSize: 9, color: "#6b7280",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  marginBottom: 4, letterSpacing: "0.08em",
+                  display: "flex", alignItems: "center", gap: 5,
+                }}>
+                  <Stethoscope size={10} color="#6b7280" /> DOCTOR / ENFERMERO ASIGNADO
                 </div>
-                <select
-                  value={form.doctor_id ?? ""}
-                  onChange={e => setForm(f => ({ ...f, doctor_id: e.target.value ? Number(e.target.value) : null }))}
-                  style={{ ...inp, cursor:"pointer" }}
-                >
-                  <option value="">— Sin asignar —</option>
-                  {medicos.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.nombre} ({m.rol})
-                    </option>
-                  ))}
-                </select>
+
+                <div style={{ position: "relative" }}>
+                  <select
+                    value={form.doctor_id ?? ""}
+                    onChange={e => setForm(f => ({ ...f, doctor_id: e.target.value ? Number(e.target.value) : null }))}
+                    style={{
+                      width: "100%",
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(0,229,255,0.2)",
+                      borderRadius: 8,
+                      color: form.doctor_id ? "#e2e8f0" : "#6b7280",
+                      padding: "10px 36px 10px 12px",
+                      fontSize: 12,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      cursor: "pointer",
+                      outline: "none",
+                      appearance: "none",
+                      WebkitAppearance: "none",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <option value=""        style={{ background: "#0d111c", color: "#6b7280" }}>— Sin asignar —</option>
+                    {medicos.map(m => (
+                      <option key={m.id} value={m.id} style={{ background: "#0d111c", color: "#e2e8f0" }}>
+                        {m.nombre} ({m.rol})
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Flecha custom */}
+                  <div style={{
+                    position: "absolute", right: 12, top: "50%",
+                    transform: "translateY(-50%)",
+                    pointerEvents: "none", color: "#00e5ff",
+                  }}>
+                    <svg width="10" height="6" viewBox="0 0 10 6" fill="none">
+                      <path d="M1 1L5 5L9 1" stroke="#00e5ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                </div>
               </div>
 
             </div>
