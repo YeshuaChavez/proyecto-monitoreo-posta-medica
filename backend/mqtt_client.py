@@ -415,10 +415,11 @@ class MQTTManager:
 
             print(f"📨 {topic} → {payload}")
 
+            # ← NUEVO: procesar en background para no bloquear el loop MQTT
             if topic == TOPIC_LECTURAS:
-                await self._procesar_lecturas(payload, ws_manager)
+                asyncio.create_task(self._procesar_lecturas(payload, ws_manager))
             elif topic == TOPIC_VITALES:
-                await self._procesar_vitales(payload, ws_manager)
+                asyncio.create_task(self._procesar_vitales(payload, ws_manager))
 
     # ── Enviar comandos encolados ─────────────────────────────
     async def _enviar_comandos(self, client):
