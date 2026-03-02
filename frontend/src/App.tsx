@@ -67,7 +67,7 @@ function App() {
         {tab === "analytics" && <Analytics live={live} historialVitales={historialVitales} historialSuero={historialSuero} config={config} />}
         {tab === "paciente" && (<Paciente  live={live} alertas={alertas} usuarioActual={usuarioActual} pacienteActual={pacienteActual} onPacienteSeleccionado={(p) => { setPacienteActual(p); setTab("paciente");}} />)}
         {tab === "alertas"   && <Alertas       alertas={alertas} limpiarAlertas={() => setAlertas([])} />}
-        {tab === "config"    && <Config        usuarioActual={usuarioActual} />}
+        {tab === "config" && <Config usuarioActual={usuarioActual} configActual={config} onConfigGuardada={cargarConfig} />}
         {tab === "admin" && esAdmin && <Administracion usuarioActual={usuarioActual} />}
         {tab === "admin" && !esAdmin && (
           <div style={{ textAlign:"center", padding:"80px 20px" }}>

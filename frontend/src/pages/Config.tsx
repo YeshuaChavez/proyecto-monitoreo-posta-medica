@@ -18,11 +18,12 @@ import {
 } from "lucide-react";
 
 interface Props {
-  usuarioActual: UsuarioLogin;
-  onConfigGuardada?: () => void;  // ← nuevo
+  usuarioActual:    UsuarioLogin;
+  onConfigGuardada?: () => void;
+  configActual?:    { peso_alerta: number; peso_critico: number };  // ← configActual, no config
 }
 
-const Config = ({ usuarioActual, onConfigGuardada }: Props) => {
+const Config = ({ usuarioActual, onConfigGuardada, configActual }: Props) => {
   const [pesoAlerta,   setPesoAlerta]   = useState(150);
   const [pesoCritico,  setPesoCritico]  = useState(100);
   const [guardando,    setGuardando]    = useState(false);
@@ -38,12 +39,12 @@ const Config = ({ usuarioActual, onConfigGuardada }: Props) => {
   const [mostrarPass,   setMostrarPass]   = useState(false);
 
   useEffect(() => {
-    getConfig().then(cfg => {
-      setPesoAlerta(cfg.peso_alerta   ?? 150);
-      setPesoCritico(cfg.peso_critico ?? 100);
-      setCargando(false);
-    });
-  }, []);
+    if (configActual) {
+      setPesoAlerta(configActual.peso_alerta);
+      setPesoCritico(configActual.peso_critico);
+    }
+    setCargando(false);
+  }, [configActual]);
 
   const handleClickGuardar = () => {
     if (pesoCritico >= pesoAlerta) {
