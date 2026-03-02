@@ -601,12 +601,27 @@ async def seleccionar_paciente(body: SeleccionarPacienteRequest):
             raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
         _paciente_activo_id = p.id
-        p.fecha_ingreso     = datetime.now().strftime("%d-%m-%Y")
+        p.fecha_ingreso = datetime.now().strftime("%d-%m-%Y")
         db.commit()
 
-        mqtt_manager.set_paciente_activo(p.to_dict())  # ← línea nueva
-
+        mqtt_manager.set_paciente_activo(p.to_dict())
         await mqtt_manager.publicar_comando("reset")
+
+        # ← NUEVO: revisar peso actual y activar bomba si es necesario
+        cfg = db.query(Config).filter(
+            Config.paciente_id == p.id
+        ).first() or db.query(Config).filter(Config.paciente_id == None).first()
+        
+        peso_critico = cfg.peso_critico if cfg else 100.0
+
+        ultimo_suero = db.query(Suero).filter(
+            Suero.paciente_id == p.id
+        ).order_by(Suero.id.desc()).first()
+
+        if ultimo_suero and ultimo_suero.peso <= peso_critico:
+            await asyncio.sleep(1)  # espera que el ESP32 termine el reset
+            await mqtt_manager.publicar_comando("bomba_on")
+
         await ws_manager.broadcast({
             "type":     "paciente_activo",
             "paciente": p.to_dict(),
