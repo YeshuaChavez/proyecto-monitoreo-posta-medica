@@ -15,8 +15,9 @@ import { enviarComando, enviarEmail } from "../services/api";
 
 
 interface Props {
-  live:     EstadoLive;
-  alertas?: Alerta[];
+  live:                    EstadoLive;
+  alertas?:                Alerta[];
+  onPacienteSeleccionado?: () => void;  // ← agrega esta línea
 }
 
 const Campo = ({ label, valor, icon }: { label: string; valor?: string; icon?: React.ReactNode }) => (
@@ -37,7 +38,7 @@ const TopBar = ({ color }: { color: string }) => (
   <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,transparent,${color},transparent)` }}/>
 );
 
-const Paciente = ({ live, alertas = [] }: Props) => {
+const Paciente = ({ live, alertas = [], onPacienteSeleccionado }: Props) => {
   if (!live) return null;
 
   const [pacienteActual, setPacienteActual] = useState<PacienteDB | null>(null);
@@ -98,7 +99,10 @@ const Paciente = ({ live, alertas = [] }: Props) => {
       {/* Selector de paciente */}
       <SelectorPaciente
         pacienteActual={pacienteActual}
-        onPacienteSeleccionado={setPacienteActual}
+        onPacienteSeleccionado={(p) => {
+          setPacienteActual(p);
+          onPacienteSeleccionado?.();
+        }}
       />
 
       {/* Header */}

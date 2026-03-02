@@ -75,6 +75,7 @@ export function useLecturas() {
           // Paciente cambiado → reset total
           if (msg.type === "paciente_activo") {
             resetEstado();
+            cargarHistorial(); // ← carga historial limpio del nuevo paciente
             return;
           }
 
@@ -128,5 +129,5 @@ export function useLecturas() {
     return () => { wsRef.current?.close(); };
   }, [cargarHistorial, resetEstado]);
 
-  return { live, historialSuero, historialVitales, alertas, setAlertas, conectado };
+  return { live, historialSuero, historialVitales, alertas, setAlertas, conectado, resetEstado };
 }
