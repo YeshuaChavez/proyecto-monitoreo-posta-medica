@@ -247,7 +247,27 @@ class MQTTManager:
             restante = int(INTERVALO_TELEGRAM - (ahora - self._ultimo_telegram).total_seconds())
             print(f"📱 Telegram anti-spam ({restante}s restantes)")
             return
-        mensaje, tipos = construir_mensaje(payload_completo, alertas, self._paciente_activo)
+
+        # ← NUEVO: si fc o spo2 son 0, buscar último valor válido en BD
+        payload_enriquecido = dict(payload_completo)
+        if payload_enriquecido.get("fc", 0) == 0 or payload_enriquecido.get("spo2", 0) == 0:
+            db = SessionLocal()
+            try:
+                from models import Vitales
+                ultimo = db.query(Vitales).filter(
+                    Vitales.fc > 0,
+                    Vitales.spo2 > 0,
+                ).order_by(Vitales.id.desc()).first()
+                if ultimo:
+                    if payload_enriquecido.get("fc", 0) == 0:
+                        payload_enriquecido["fc"] = ultimo.fc
+                    if payload_enriquecido.get("spo2", 0) == 0:
+                        payload_enriquecido["spo2"] = ultimo.spo2
+                    print(f"📱 Vitales enriquecidos desde BD → FC:{ultimo.fc} SpO2:{ultimo.spo2}")
+            finally:
+                db.close()
+
+        mensaje, tipos = construir_mensaje(payload_enriquecido, alertas, self._paciente_activo)
         if mensaje:
             await enviar_alerta(mensaje, tipos)
             self._ultimo_telegram = ahora
@@ -285,11 +305,20 @@ class MQTTManager:
             await self._enviar_telegram_si_aplica(payload_completo, alertas)
 
         # ← NUEVO: activar bomba automáticamente si peso <= crítico y bomba aún no activa
+        # ← activar bomba automáticamente si peso <= crítico y bomba aún no activa
         if estado_suero not in ESTADOS_INACTIVOS and not bomba:
             cfg = get_config(paciente_id=self._get_paciente_id())
             if peso <= cfg["peso_critico"]:
                 await self.publicar_comando("bomba_on")
                 print(f"🚨 Bomba AUTO — {peso:.1f}ml <= crítico {cfg['peso_critico']}ml")
+                
+                # ← NUEVO: mandar telegram de bomba activada aunque _alerta_suero_activa esté True
+                alerta_bomba = [{
+                    "tipo":    "SUERO_CRITICO",
+                    "mensaje": f"Nivel crítico: {peso:.1f}ml — bomba activada automáticamente",
+                    "valor":   peso,
+                }]
+                await self._enviar_telegram_si_aplica(payload_completo, alerta_bomba)
 
     # ── Handler: vitales → tabla vitales ─────────────────────
     async def _procesar_vitales(self, payload: dict, ws_manager):
