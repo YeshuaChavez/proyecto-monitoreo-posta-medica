@@ -19,6 +19,8 @@ export function useLecturas(onPacienteActivo?: () => void) {
     fc: 0, spo2: 0, estado_vitales: "MIDIENDO",
   });
   const onPacienteActivoRef = useRef(onPacienteActivo);
+  const bloqueadoRef        = useRef(false); // ← bloqueo durante cambio de paciente
+
   useEffect(() => { onPacienteActivoRef.current = onPacienteActivo; }, [onPacienteActivo]);
 
   const resetEstado = useCallback(() => {
@@ -81,13 +83,18 @@ export function useLecturas(onPacienteActivo?: () => void) {
         try {
           const msg = JSON.parse(event.data);
 
+          // Ignorar todo excepto paciente_activo mientras se cambia de paciente
+          if (msg.type !== "paciente_activo" && bloqueadoRef.current) return;
+
           if (msg.type === "paciente_activo") {
+            bloqueadoRef.current = true; // bloquear mensajes WS
             resetEstado();
-            // Pequeño delay para que el backend termine de setear el nuevo paciente_activo_id
             setTimeout(() => {
-              cargarHistorial();
-              onPacienteActivoRef.current?.();
-            }, 500);  // 500ms es suficiente
+              cargarHistorial().then(() => {
+                bloqueadoRef.current = false; // desbloquear DESPUÉS de cargar historial
+                onPacienteActivoRef.current?.();
+              });
+            }, 500);
             return;
           }
 
@@ -95,7 +102,7 @@ export function useLecturas(onPacienteActivo?: () => void) {
             const suero: DatosSuero = msg.data;
             setHistorialSuero(prev => {
               const nuevo = [...prev, suero];
-              return nuevo.slice(-300); // mantener últimas 300 lecturas (~5min)
+              return nuevo.slice(-300);
             });
             const vRef = ultimosVitalesRef.current;
             const fc   = (msg.estado?.fc   && msg.estado.fc   > 0) ? msg.estado.fc   : vRef.fc;
@@ -120,7 +127,6 @@ export function useLecturas(onPacienteActivo?: () => void) {
               };
               setLive(l => ({ ...l, fc: vitales.fc, spo2: vitales.spo2, estado_vitales: vitales.estado_vitales }));
 
-              // ← NUEVO
               setHistorialVitales(prev => {
                 const now = new Date();
                 const punto: DatosVitales = {
@@ -132,7 +138,7 @@ export function useLecturas(onPacienteActivo?: () => void) {
                   spo2:           vitales.spo2,
                   estado_vitales: vitales.estado_vitales,
                 };
-                return [...prev, punto].slice(-60); // 60 puntos × 10s = últimos 10 min
+                return [...prev, punto].slice(-60);
               });
             }
           }
