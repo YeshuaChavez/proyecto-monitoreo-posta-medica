@@ -480,12 +480,14 @@ class PacienteRequest(BaseModel):
     contacto_relacion: str = ""
 
 @app.get("/pacientes")
-def get_pacientes(solo_activos: bool = True):
+def get_pacientes(solo_activos: bool = True, doctor_id: int | None = None):
     db = SessionLocal()
     try:
         q = db.query(Paciente)
         if solo_activos:
             q = q.filter(Paciente.activo == True)
+        if doctor_id:
+            q = q.filter(Paciente.doctor_id == doctor_id)
         return [p.to_dict() for p in q.order_by(Paciente.id.desc()).all()]
     finally:
         db.close()
