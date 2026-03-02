@@ -520,7 +520,6 @@ def crear_paciente(body: PacienteRequest):
             contacto_telefono = body.contacto_telefono,
             contacto_relacion = body.contacto_relacion,
             activo            = True,
-            created_at        = datetime.utcnow(),
         )
         db.add(p)
         db.commit()
@@ -545,7 +544,7 @@ def actualizar_paciente(paciente_id: int, body: PacienteRequest):
         p.nombre            = body.nombre
         p.apellido          = body.apellido
         p.codigo            = body.codigo
-        p.doctor            = body.doctor    # ← cambio
+        p.doctor_id         = body.doctor_id    # ← cambio
         p.grupo_sanguineo   = body.grupo_sanguineo
         p.fecha_nacimiento  = body.fecha_nacimiento
         p.fecha_ingreso     = body.fecha_ingreso
