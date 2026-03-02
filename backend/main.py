@@ -121,12 +121,22 @@ async def websocket_endpoint(websocket: WebSocket):
             q_vitales = db.query(Vitales).order_by(Vitales.id.desc())
 
             if _paciente_activo_id:
-                q_suero   = q_suero.filter(Suero.paciente_id   == _paciente_activo_id)
+                q_suero   = q_suero.filter(Suero.paciente_id    == _paciente_activo_id)
                 q_vitales = q_vitales.filter(Vitales.paciente_id == _paciente_activo_id)
 
             ultimo_suero    = q_suero.first()
             ultimos_vitales = q_vitales.first()
 
+            # ← PRIMERO paciente_activo, para que el frontend haga reset antes
+            if _paciente_activo_id:
+                p = db.query(Paciente).filter(Paciente.id == _paciente_activo_id).first()
+                if p:
+                    await websocket.send_text(json.dumps({
+                        "type":     "paciente_activo",
+                        "paciente": p.to_dict(),
+                    }, default=str))
+
+            # ← DESPUÉS los datos (ya filtrados por paciente)
             if ultimo_suero:
                 await websocket.send_text(json.dumps({
                     "type": "lectura",
@@ -145,15 +155,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     "data": ultimos_vitales.to_dict(),
                 }, default=str))
 
-            # Enviar paciente activo al conectarse
-            if _paciente_activo_id:
-                p = db.query(Paciente).filter(Paciente.id == _paciente_activo_id).first()
-                if p:
-                    await websocket.send_text(json.dumps({
-                        "type":     "paciente_activo",
-                        "paciente": p.to_dict(),
-                    }, default=str))
-
         finally:
             db.close()
 
@@ -165,7 +166,7 @@ async def websocket_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
     except Exception:
         ws_manager.disconnect(websocket)
-
+        
 # ═══════════════════════════════════════════════════════════════
 #  REST — GENERAL
 # ═══════════════════════════════════════════════════════════════
