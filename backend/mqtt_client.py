@@ -33,7 +33,7 @@ UMBRAL_FC_ALTA = 100
 UMBRAL_FC_BAJA = 60
 UMBRAL_SPO2    = 95
 
-INTERVALO_TELEGRAM = 10
+INTERVALO_TELEGRAM = 5
 ESTADOS_INACTIVOS  = {"INICIANDO", "ESPERANDO"}
 
 
@@ -283,6 +283,10 @@ class MQTTManager:
         if bomba_anterior and not bomba:
             self.ultimo_origen = "automatico"
             print("🔄 Bomba apagada — origen reseteado a 'automatico'")
+            # ← resetear alerta si recarga completada
+            if peso >= "NORMAL":
+                self._alerta_suero_activa = False
+                print(f"✅ Recarga completa ({peso:.1f}ml) — alertas reseteadas")
 
         self._ultimo_suero = {
             "peso":         peso,
@@ -304,20 +308,21 @@ class MQTTManager:
             await ws_manager.broadcast({"type": "alertas", "data": alertas})
             await self._enviar_telegram_si_aplica(payload_completo, alertas)
 
-        # ← NUEVO: activar bomba automáticamente si peso <= crítico y bomba aún no activa
-        # ← activar bomba automáticamente si peso <= crítico y bomba aún no activa
+        # Activar bomba automáticamente si peso <= crítico y bomba aún no activa
         if estado_suero not in ESTADOS_INACTIVOS and not bomba:
             cfg = get_config(paciente_id=self._get_paciente_id())
             if peso <= cfg["peso_critico"]:
                 await self.publicar_comando("bomba_on")
                 print(f"🚨 Bomba AUTO — {peso:.1f}ml <= crítico {cfg['peso_critico']}ml")
-                
-                # ← NUEVO: mandar telegram de bomba activada aunque _alerta_suero_activa esté True
+
+                # Mandar telegram directo, saltando anti-spam solo para bomba auto
                 alerta_bomba = [{
                     "tipo":    "SUERO_CRITICO",
                     "mensaje": f"Nivel crítico: {peso:.1f}ml — bomba activada automáticamente",
                     "valor":   peso,
                 }]
+                # Forzar reset del timer para que este mensaje siempre salga
+                self._ultimo_telegram = datetime.min
                 await self._enviar_telegram_si_aplica(payload_completo, alerta_bomba)
 
     # ── Handler: vitales → tabla vitales ─────────────────────
