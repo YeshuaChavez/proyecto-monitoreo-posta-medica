@@ -234,10 +234,10 @@ def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | No
                     border-radius:14px;padding:18px 12px;text-align:center">
           <div style="color:#6b7280;font-size:8px;font-family:monospace;letter-spacing:0.1em;margin-bottom:8px">FLUIDO IV</div>
           <div style="color:{color_peso};font-size:34px;font-weight:800;font-family:monospace;line-height:1">{peso:.0f}</div>
-          <div style="color:#4b5563;font-size:10px;margin:4px 0 10px">gramos</div>
+          <div style="color:#4b5563;font-size:10px;margin:4px 0 10px">ml</div>
           <div style="padding:3px 10px;border-radius:99px;font-size:9px;font-weight:700;font-family:monospace;
                       display:inline-block;background:{bg_peso};color:{txt_peso}">{estado_peso}</div>
-          <div style="margin-top:8px;color:#374151;font-size:9px;font-family:monospace">Crítico: &lt; 100g</div>
+          <div style="margin-top:8px;color:#374151;font-size:9px;font-family:monospace">Crítico: &lt; 100ml</div>
         </div>
       </td>
     </tr>
@@ -377,7 +377,7 @@ def _generar_pdf(payload: dict, alertas: list, paciente: dict | None = None) -> 
         ["Signo Vital",    "Valor",                         "Unidad", "Estado",     "Rango Normal"],
         ["Frec. Cardíaca", str(fc)   if fc   > 0 else "—", "bpm",    estado_fc,    "60 – 100 bpm"],
         ["Saturación O₂",  str(spo2) if spo2 > 0 else "—", "%",      estado_spo2,  "≥ 95%"],
-        ["Fluido IV",      f"{peso:.1f}",                  "g",      estado_peso,  "≥ 150g OK"],
+        ["Fluido IV",      f"{peso:.1f}",                  "ml",      estado_peso,  "≥ 150ml OK"],
     ], colWidths=[1.8*inch, 1.2*inch, 0.8*inch, 1.2*inch, 1.5*inch])
     t_vitales.setStyle(TableStyle([
         ("BACKGROUND",     (0, 0), (-1,  0), azul_osc),
