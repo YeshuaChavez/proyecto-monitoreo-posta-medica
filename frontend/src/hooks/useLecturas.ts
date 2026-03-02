@@ -4,7 +4,7 @@ import { API, getSueroPorMinuto, getVitalesPorMinuto, getAlertas } from "../serv
 
 const SIMULAR = false;
 
-export function useLecturas() {
+export function useLecturas(onPacienteActivo?: () => void) {
   const [live, setLive] = useState<EstadoLive>({
     fc: 0, spo2: 0, peso: 500,
     bomba: false, estado_suero: "NORMAL", estado_vitales: "MIDIENDO",
@@ -18,8 +18,9 @@ export function useLecturas() {
   const ultimosVitalesRef = useRef<{ fc: number; spo2: number; estado_vitales: string }>({
     fc: 0, spo2: 0, estado_vitales: "MIDIENDO",
   });
+  const onPacienteActivoRef = useRef(onPacienteActivo);
+  useEffect(() => { onPacienteActivoRef.current = onPacienteActivo; }, [onPacienteActivo]);
 
-  // Reset completo del estado local (cuando cambia el paciente)
   const resetEstado = useCallback(() => {
     setLive({ fc:0, spo2:0, peso:500, bomba:false, estado_suero:"NORMAL", estado_vitales:"MIDIENDO" });
     setHistorialSuero([]);
@@ -28,12 +29,11 @@ export function useLecturas() {
     ultimosVitalesRef.current = { fc:0, spo2:0, estado_vitales:"MIDIENDO" };
   }, []);
 
-  // Carga historial agrupado por minuto
   const cargarHistorial = useCallback(async () => {
     try {
       const [suero, vitales, alts] = await Promise.all([
-        getSueroPorMinuto(60),    // ← por minuto
-        getVitalesPorMinuto(60),  // ← por minuto
+        getSueroPorMinuto(60),
+        getVitalesPorMinuto(60),
         getAlertas(50),
       ]);
       if (suero?.length) {
@@ -50,11 +50,8 @@ export function useLecturas() {
     } catch (e) { console.warn("Error cargando historial:", e); }
   }, []);
 
-  // Recarga el historial por minuto cada 60 segundos
   useEffect(() => {
-    const intervalo = setInterval(() => {
-      cargarHistorial();
-    }, 60_000);
+    const intervalo = setInterval(() => { cargarHistorial(); }, 60_000);
     return () => clearInterval(intervalo);
   }, [cargarHistorial]);
 
@@ -66,21 +63,19 @@ export function useLecturas() {
       const ws = new WebSocket(API.ws);
       wsRef.current = ws;
 
-      ws.onopen  = () => { setConectado(true); console.log("✅ WebSocket conectado"); };
+      ws.onopen = () => { setConectado(true); console.log("✅ WebSocket conectado"); };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
 
-          // Paciente cambiado → reset total
           if (msg.type === "paciente_activo") {
             resetEstado();
-            cargarHistorial(); // ← carga historial limpio del nuevo paciente
+            cargarHistorial();
+            onPacienteActivoRef.current?.();  // ← recarga config en App
             return;
           }
 
-          // Lectura de suero → solo actualiza live, NO el historial
-          // El historial se recarga cada 60s agrupado por minuto
           if (msg.type === "lectura" && msg.data) {
             const suero: DatosSuero = msg.data;
             const vRef = ultimosVitalesRef.current;
@@ -89,15 +84,13 @@ export function useLecturas() {
             const ev   = msg.estado?.estado_vitales || vRef.estado_vitales;
             setLive({
               fc, spo2,
-              peso:          suero.peso,
-              bomba:         suero.bomba,
-              estado_suero:  suero.estado_suero,
+              peso:           suero.peso,
+              bomba:          suero.bomba,
+              estado_suero:   suero.estado_suero,
               estado_vitales: ev,
             });
-            // ← historialSuero NO se toca aquí, solo live
           }
 
-          // Vitales → solo actualiza live, NO el historial
           if (msg.type === "vitales" && msg.data) {
             const vitales: DatosVitales = msg.data;
             if (vitales.fc > 0 && vitales.spo2 > 0) {
@@ -107,7 +100,6 @@ export function useLecturas() {
                 estado_vitales: vitales.estado_vitales,
               };
               setLive(l => ({ ...l, fc: vitales.fc, spo2: vitales.spo2, estado_vitales: vitales.estado_vitales }));
-              // ← historialVitales NO se toca aquí, solo live
             }
           }
 

@@ -14,6 +14,7 @@ interface Props {
   live:              EstadoLive;
   historialVitales?: DatosVitales[];
   historialSuero?:   DatosSuero[];
+  config?:           { peso_alerta: number; peso_critico: number };
 }
 
 function regresionLineal(puntos: { x: number; y: number }[]) {
@@ -41,7 +42,7 @@ function detectarAnomalia(tasas: number[]) {
   return { anomalia: zScore > 2.5, zScore: +zScore.toFixed(2) };
 }
 
-const Analytics = ({ live, historialVitales = [], historialSuero = [] }: Props) => {
+const Analytics = ({ live, historialVitales = [], historialSuero = [], config = { peso_alerta: 150, peso_critico: 100 } }: Props) => {
 
   const datos = (historialVitales ?? []).filter(h => h.fc > 0 && h.spo2 > 0);
   const total = datos.length || 1;

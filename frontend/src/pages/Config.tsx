@@ -19,9 +19,10 @@ import {
 
 interface Props {
   usuarioActual: UsuarioLogin;
+  onConfigGuardada?: () => void;  // ← nuevo
 }
 
-const Config = ({ usuarioActual }: Props) => {
+const Config = ({ usuarioActual, onConfigGuardada }: Props) => {
   const [pesoAlerta,   setPesoAlerta]   = useState(150);
   const [pesoCritico,  setPesoCritico]  = useState(100);
   const [guardando,    setGuardando]    = useState(false);
@@ -69,6 +70,7 @@ const Config = ({ usuarioActual }: Props) => {
       setResultado(null);
       await guardarConfig(pesoAlerta, pesoCritico);
       setResultado("✅ Configuración guardada y enviada al ESP32");
+      onConfigGuardada?.(); 
       setTimeout(() => setResultado(null), 3000);
     } catch {
       setErrorConfirm("Contraseña incorrecta");
