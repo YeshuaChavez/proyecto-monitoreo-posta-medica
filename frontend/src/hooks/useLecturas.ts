@@ -33,41 +33,43 @@ export function useLecturas(onPacienteActivo?: () => void) {
   }, []);
 
   const cargarHistorial = useCallback(async () => {
-    try {
-      const [suero, vitales, alts] = await Promise.all([
-        getSueroPorMinuto(60),
-        getVitalesPorMinuto(60),
-        getAlertas(50),
-      ]);
-      if (suero?.length) {
-        setHistorialSuero(suero);
-        setLive(l => ({ ...l, ...suero[suero.length - 1] }));
-      }
-      if (vitales?.length) {
-        setHistorialVitales(vitales);
-        const ultimo = vitales[vitales.length - 1];
-        ultimosVitalesRef.current = { fc: ultimo.fc, spo2: ultimo.spo2, estado_vitales: ultimo.estado_vitales };
-        setLive(l => ({ ...l, fc: ultimo.fc, spo2: ultimo.spo2, estado_vitales: ultimo.estado_vitales }));
-      }
-      if (alts?.length) setAlertas(alts);
-    } catch (e) { console.warn("Error cargando historial:", e); }
-  }, []);
-
-  useEffect(() => {
-    const intervalo = setInterval(async () => {
+      const pid = pacienteActivoIdRef.current ?? undefined;  // ← NUEVO
       try {
-        const [suero, alts] = await Promise.all([
-          getSueroPorMinuto(60),
-          getAlertas(50),
+        const [suero, vitales, alts] = await Promise.all([
+          getSueroPorMinuto(60, pid),    // ← pasar pid
+          getVitalesPorMinuto(60, pid),  // ← pasar pid
+          getAlertas(50, pid),           // ← pasar pid
         ]);
         if (suero?.length) {
           setHistorialSuero(suero);
           setLive(l => ({ ...l, ...suero[suero.length - 1] }));
         }
+        if (vitales?.length) {
+          setHistorialVitales(vitales);
+          const ultimo = vitales[vitales.length - 1];
+          ultimosVitalesRef.current = { fc: ultimo.fc, spo2: ultimo.spo2, estado_vitales: ultimo.estado_vitales };
+          setLive(l => ({ ...l, fc: ultimo.fc, spo2: ultimo.spo2, estado_vitales: ultimo.estado_vitales }));
+        }
         if (alts?.length) setAlertas(alts);
-      } catch (e) { console.warn("Error recargando:", e); }
-    }, 60_000);
-    return () => clearInterval(intervalo);
+      } catch (e) { console.warn("Error cargando historial:", e); }
+  }, []);
+
+  useEffect(() => {
+      const intervalo = setInterval(async () => {
+        const pid = pacienteActivoIdRef.current ?? undefined;  // ← NUEVO
+        try {
+          const [suero, alts] = await Promise.all([
+            getSueroPorMinuto(60, pid),  // ← pasar pid
+            getAlertas(50, pid),         // ← pasar pid
+          ]);
+          if (suero?.length) {
+            setHistorialSuero(suero);
+            setLive(l => ({ ...l, ...suero[suero.length - 1] }));
+          }
+          if (alts?.length) setAlertas(alts);
+        } catch (e) { console.warn("Error recargando:", e); }
+      }, 60_000);
+      return () => clearInterval(intervalo);
   }, []);
 
   useEffect(() => {

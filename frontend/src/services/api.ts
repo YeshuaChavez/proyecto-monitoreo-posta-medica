@@ -49,12 +49,13 @@ export async function getVitalesRango(desde: string, hasta: string) {
 }
 
 // ── Alertas ───────────────────────────────────────────────────
-export async function getAlertas(limit = 50) {
-  const res = await fetch(`${API.alertas}?limit=${limit}`);
-  if (!res.ok) return [];
-  return res.json();
+export async function getAlertas(limit = 50, pacienteId?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (pacienteId) params.append("paciente_id", String(pacienteId));
+    const res = await fetch(`${API.alertas}?${params}`);
+    if (!res.ok) return [];
+    return res.json();
 }
-
 export async function limpiarAlertas() {
   const res = await fetch(`${API.alertas}`, { method: "DELETE" });
   if (!res.ok) return null;
@@ -116,14 +117,18 @@ export async function loginUsuario(usuario: string, password: string) {
   return res.json();
 }
 
-export async function getSueroPorMinuto(limit = 60) {
-    const res = await fetch(`${API.base}/suero/por-minuto?limit=${limit}`);
+export async function getSueroPorMinuto(limit = 60, pacienteId?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (pacienteId) params.append("paciente_id", String(pacienteId));
+    const res = await fetch(`${API.base}/suero/por-minuto?${params}`);
     if (!res.ok) return [];
     return res.json();
 }
 
-export async function getVitalesPorMinuto(limit = 60) {
-    const res = await fetch(`${API.base}/vitales/por-minuto?limit=${limit}`);
+export async function getVitalesPorMinuto(limit = 60, pacienteId?: number) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (pacienteId) params.append("paciente_id", String(pacienteId));
+    const res = await fetch(`${API.base}/vitales/por-minuto?${params}`);
     if (!res.ok) return [];
     return res.json();
 }
