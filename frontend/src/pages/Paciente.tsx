@@ -15,10 +15,11 @@ import { enviarComando, enviarEmail } from "../services/api";
 
 
 interface Props {
-  live:            EstadoLive;
-  alertas?:         Alerta[];
-  onPacienteSeleccionado?: () => void;
-  usuarioActual?:  UsuarioLogin | null;
+  live:                    EstadoLive;
+  alertas?:                Alerta[];
+  onPacienteSeleccionado?: (p: PacienteDB) => void;
+  usuarioActual?:          UsuarioLogin | null;
+  pacienteActual?:         PacienteDB | null;   // ← agregar esta línea
 }
 
 const Campo = ({ label, valor, icon }: { label: string; valor?: string; icon?: React.ReactNode }) => (
@@ -39,10 +40,10 @@ const TopBar = ({ color }: { color: string }) => (
   <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,transparent,${color},transparent)` }}/>
 );
 
-const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual }: Props) => {
+const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual, pacienteActual }: Props) => {
   if (!live) return null;
 
-  const [pacienteActual, setPacienteActual] = useState<PacienteDB | null>(null);
+  const [pacienteLocal, setPacienteLocal] = useState<PacienteDB | null>(pacienteActual ?? null);
   const [enviando,  setEnviando]  = useState(false);
   const [bombaLocal, setBombaLocal] = useState<boolean | null>(null); // null = usa live.bomba
   const [error,     setError]     = useState<string | null>(null);
@@ -99,11 +100,10 @@ const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual }:
 
       {/* Selector de paciente */}
       <SelectorPaciente
-        pacienteActual={pacienteActual}
+        pacienteActual={pacienteActual ?? null}
         usuarioActual={usuarioActual}
         onPacienteSeleccionado={(p) => {
-          setPacienteActual(p);
-          onPacienteSeleccionado?.();
+          onPacienteSeleccionado?.(p);   // ← solo esto, sin setPacienteActual
         }}
       />
 

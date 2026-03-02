@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import BarraNavegacion from "./components/BarraNavegacion";
 import Login from "./pages/Login";
 import Monitor from "./pages/Monitor";
@@ -7,13 +7,16 @@ import Alertas from "./pages/Alertas";
 import Paciente from "./pages/Paciente";
 import Config from "./pages/Config";
 import Administracion from "./pages/Administracion";
-import { UsuarioLogin } from "./tipos";
+import { PacienteDB, UsuarioLogin } from "./tipos";
 import { useLecturas } from "./hooks/useLecturas";
+import { getConfig } from "./services/api";
 import "./index.css";
 
 const BASE = (import.meta as any).env?.VITE_API_URL || "https://proyecto-monitoreo-posta-medica-production.up.railway.app";
 
 function App() {
+  const [pacienteActual, setPacienteActual] = useState<PacienteDB | null>(null);
+  const [config, setConfig] = useState({ peso_alerta: 150, peso_critico: 100 });
   const [usuarioActual, setUsuarioActual] = useState<UsuarioLogin | null>(null);
   const [tab, setTab] = useState("paciente");
   const {
@@ -25,13 +28,19 @@ function App() {
     setAlertas,
   } = useLecturas();
 
-  if (!usuarioActual) return <Login onLogin={(u) => {
-    // Limpiar paciente activo del servidor al iniciar sesión nueva
-    fetch(`${BASE}/logout`, { method: "POST" }).catch(() => {});
-    setUsuarioActual(u);
-  }} />;
+  if (!usuarioActual) return <Login onLogin={setUsuarioActual} />;
+
 
   const esAdmin = usuarioActual.rol === "Administrador" || usuarioActual.usuario === "admin";
+
+  const cargarConfig = useCallback(async () => {
+    try {
+      const c = await getConfig();
+      if (c?.peso_alerta) setConfig({ peso_alerta: c.peso_alerta, peso_critico: c.peso_critico });
+    } catch {}
+  }, []);
+
+  useEffect(() => { cargarConfig(); }, [cargarConfig]);
 
   return (
     <div style={{
@@ -53,7 +62,12 @@ function App() {
         conectado={conectado}
         esAdmin={esAdmin}
         usuarioActual={usuarioActual}
-        onLogout={() => { fetch(`${BASE}/logout`, { method: "POST" }).catch(() => {}); setUsuarioActual(null); setTab("paciente"); }}
+        onLogout={() => {
+          setUsuarioActual(null);
+          setPacienteActual(null);  // ← agrega esto
+          setTab("paciente");
+          // ← elimina el fetch /logout
+        }}      
       />
 
       <main style={{ position: "relative", zIndex: 1, padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
