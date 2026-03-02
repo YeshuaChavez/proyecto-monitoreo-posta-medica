@@ -22,8 +22,10 @@ function analizarFlujo(historial: DatosSuero[], pesoActual: number, config: { pe
   if (!historial.length) return null;
 
   // Usar los últimos 10 puntos para calcular tendencia
-  const ultimos = historial.slice(-10);
-  if (ultimos.length < 3) return null;
+  const ultimos = historial.slice(-10);  // ← últimos 30 segundos reales
+  const pesos = ultimos.map(p => p.peso);
+  const rangoRuido = Math.max(...pesos) - Math.min(...pesos);  // ← max - min
+  if (rangoRuido <= 5) { /* ESTABLE */ }
 
   const primero = ultimos[0].peso;
   const ultimo  = ultimos[ultimos.length - 1].peso;
@@ -103,10 +105,9 @@ const Analytics = ({ live, historialVitales = [], historialSuero = [], config = 
   );
 
   const flujoInfo = useMemo(() =>
-    analizarFlujo(datosSueroEstable, live.peso, config),
-    [datosSueroEstable, live.peso, config]
+    analizarFlujo(historialSuero, live.peso, config),
+    [historialSuero.length, live.peso, config]  // ← .length para no recomputar innecesario
   );
-
   const total = datosVitales.length || 1;
   const promedioFC   = (datosVitales.reduce((a, b) => a + b.fc,   0) / total).toFixed(0);
   const promedioSpO2 = (datosVitales.reduce((a, b) => a + b.spo2, 0) / total).toFixed(1);
