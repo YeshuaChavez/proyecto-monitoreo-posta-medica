@@ -19,7 +19,8 @@ export function useLecturas(onPacienteActivo?: () => void) {
     fc: 0, spo2: 0, estado_vitales: "MIDIENDO",
   });
   const onPacienteActivoRef = useRef(onPacienteActivo);
-  const bloqueadoRef        = useRef(false); // ← bloqueo durante cambio de paciente
+  const bloqueadoRef        = useRef(false);
+  const pacienteActivoIdRef = useRef<number | null>(null); // ← NUEVO
 
   useEffect(() => { onPacienteActivoRef.current = onPacienteActivo; }, [onPacienteActivo]);
 
@@ -83,15 +84,16 @@ export function useLecturas(onPacienteActivo?: () => void) {
         try {
           const msg = JSON.parse(event.data);
 
-          // Ignorar todo excepto paciente_activo mientras se cambia de paciente
           if (msg.type !== "paciente_activo" && bloqueadoRef.current) return;
 
           if (msg.type === "paciente_activo") {
-            bloqueadoRef.current = true; // bloquear mensajes WS
+            // ← guardar el paciente_id activo
+            pacienteActivoIdRef.current = msg.paciente?.id ?? null;
+            bloqueadoRef.current = true;
             resetEstado();
             setTimeout(() => {
               cargarHistorial().then(() => {
-                bloqueadoRef.current = false; // desbloquear DESPUÉS de cargar historial
+                bloqueadoRef.current = false;
                 onPacienteActivoRef.current?.();
               });
             }, 500);
@@ -100,10 +102,11 @@ export function useLecturas(onPacienteActivo?: () => void) {
 
           if (msg.type === "lectura" && msg.data) {
             const suero: DatosSuero = msg.data;
-            setHistorialSuero(prev => {
-              const nuevo = [...prev, suero];
-              return nuevo.slice(-300);
-            });
+            // ← filtrar por paciente activo
+            if (pacienteActivoIdRef.current && suero.paciente_id &&
+                suero.paciente_id !== pacienteActivoIdRef.current) return;
+
+            setHistorialSuero(prev => [...prev, suero].slice(-300));
             const vRef = ultimosVitalesRef.current;
             const fc   = (msg.estado?.fc   && msg.estado.fc   > 0) ? msg.estado.fc   : vRef.fc;
             const spo2 = (msg.estado?.spo2 && msg.estado.spo2 > 0) ? msg.estado.spo2 : vRef.spo2;
@@ -119,6 +122,10 @@ export function useLecturas(onPacienteActivo?: () => void) {
 
           if (msg.type === "vitales" && msg.data) {
             const vitales: DatosVitales = msg.data;
+            // ← filtrar por paciente activo
+            if (pacienteActivoIdRef.current && vitales.paciente_id &&
+                vitales.paciente_id !== pacienteActivoIdRef.current) return;
+
             if (vitales.fc > 0 && vitales.spo2 > 0) {
               ultimosVitalesRef.current = {
                 fc:             vitales.fc,
