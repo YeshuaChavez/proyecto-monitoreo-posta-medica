@@ -21,65 +21,51 @@ interface Props {
 function analizarFlujo(historial: DatosSuero[], pesoActual: number, config: { peso_alerta: number; peso_critico: number }) {
   if (!historial.length) return null;
 
-  // Usar los últimos 10 puntos para calcular tendencia
-  const ultimos = historial.slice(-30);  // ← últimos 30 segundos reales
-  const pesos = ultimos.map(p => p.peso);
-  const rangoRuido = Math.max(...pesos) - Math.min(...pesos);  // ← max - min
-  if (rangoRuido <= 5) { /* ESTABLE */ }
+  const ultimos = historial.slice(-10);  // ← 10 segundos
+  if (ultimos.length < 5) return null;
 
-  const primero = ultimos[0].peso;
-  const ultimo  = ultimos[ultimos.length - 1].peso;
-  const delta   = ultimo - primero;           // positivo = sube, negativo = baja
-  const deltaAbs = Math.abs(delta);
-  const pctCambio = (deltaAbs / (primero || 1)) * 100;
-
-  // Detectar si está recargando (bomba activa)
+  const pesos      = ultimos.map(p => p.peso);
+  const rangoRuido = Math.max(...pesos) - Math.min(...pesos);
+  const primero    = ultimos[0].peso;
+  const ultimo     = ultimos[ultimos.length - 1].peso;
+  const delta      = ultimo - primero;
+  const deltaAbs   = Math.abs(delta);
   const bombaActiva = ultimos.some(p => p.bomba);
 
-  if (bombaActiva || delta > 6) {
+  if (bombaActiva || delta > 8) {
     return {
-      estado:    "RECARGANDO",
-      desc:      "Bomba activa — nivel en aumento",
-      detalle:   `+${deltaAbs.toFixed(1)} ml en últimas lecturas`,
-      color:     "#10b981",
-      bg:        "rgba(16,185,129,0.07)",
-      border:    "rgba(16,185,129,0.25)",
-      icon:      "up",
+      estado:  "RECARGANDO",
+      desc:    "Bomba activa — nivel en aumento",
+      detalle: `+${deltaAbs.toFixed(1)} ml en últimas lecturas`,
+      color: "#10b981", bg: "rgba(16,185,129,0.07)", border: "rgba(16,185,129,0.25)", icon: "up",
     };
   }
 
-  if (deltaAbs < 2.5) {
+  // ✅ ESTABLE: rango total ≤ 3ml → es ruido del HX711, no flujo real
+  if (rangoRuido <= 3) {
     return {
-      estado:    "ESTABLE",
-      desc:      "Flujo detenido o muy lento",
-      detalle:   `Variación < 2.5 ml — posible oclusión o pinza cerrada`,
-      color:     "#6b7280",
-      bg:        "rgba(107,114,128,0.07)",
-      border:    "rgba(107,114,128,0.2)",
-      icon:      "flat",
+      estado:  "ESTABLE",
+      desc:    "Flujo detenido — sin cambios detectados",
+      detalle: `Variación ±${rangoRuido.toFixed(1)} ml (ruido de sensor)`,
+      color: "#6b7280", bg: "rgba(107,114,128,0.07)", border: "rgba(107,114,128,0.2)", icon: "flat",
     };
   }
 
   if (delta < 0) {
-    if (pctCambio > 10) {
+    const pctCambio = (deltaAbs / (primero || 1)) * 100;
+    if (pctCambio > 8) {
       return {
-        estado:    "DESCENSO RÁPIDO",
-        desc:      "Suero cayendo a velocidad alta",
-        detalle:   `-${deltaAbs.toFixed(1)} ml (${pctCambio.toFixed(0)}%) — revisar caudal`,
-        color:     "#ef4444",
-        bg:        "rgba(239,68,68,0.07)",
-        border:    "rgba(239,68,68,0.25)",
-        icon:      "down-fast",
+        estado:  "DESCENSO RÁPIDO",
+        desc:    "Suero cayendo a velocidad alta",
+        detalle: `-${deltaAbs.toFixed(1)} ml (${pctCambio.toFixed(0)}%) — revisar caudal`,
+        color: "#ef4444", bg: "rgba(239,68,68,0.07)", border: "rgba(239,68,68,0.25)", icon: "down-fast",
       };
     }
     return {
-      estado:    "DESCENDIENDO",
-      desc:      "Suero reduciéndose normalmente",
-      detalle:   `-${deltaAbs.toFixed(1)} ml en últimas lecturas`,
-      color:     "#a78bfa",
-      bg:        "rgba(167,139,250,0.07)",
-      border:    "rgba(167,139,250,0.2)",
-      icon:      "down",
+      estado:  "DESCENDIENDO",
+      desc:    "Suero reduciéndose normalmente",
+      detalle: `-${deltaAbs.toFixed(1)} ml en últimas lecturas`,
+      color: "#a78bfa", bg: "rgba(167,139,250,0.07)", border: "rgba(167,139,250,0.2)", icon: "down",
     };
   }
 
