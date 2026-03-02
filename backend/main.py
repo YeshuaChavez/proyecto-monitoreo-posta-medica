@@ -470,7 +470,7 @@ class PacienteRequest(BaseModel):
     nombre:            str
     apellido:          str
     codigo:            str | None = None
-    doctor:            str = ""          
+    doctor_id:         int | None = None          
     grupo_sanguineo:   str = ""
     fecha_nacimiento:  str = ""
     fecha_ingreso:     str = ""
@@ -511,7 +511,7 @@ def crear_paciente(body: PacienteRequest):
             nombre            = body.nombre,
             apellido          = body.apellido,
             codigo            = body.codigo,
-            doctor            = body.doctor,   # ← cambio
+            doctor_id         = body.doctor_id,
             grupo_sanguineo   = body.grupo_sanguineo,
             fecha_nacimiento  = body.fecha_nacimiento,
             fecha_ingreso     = body.fecha_ingreso,
