@@ -27,7 +27,7 @@ function App() {
   }, []);
   useEffect(() => { cargarConfig(); }, [cargarConfig]);
 
-  const { live, historialSuero, historialVitales, conectado, alertas, setAlertas } = useLecturas(cargarConfig);
+  const { live, historialSuero, historialVitales, conectado, alertas, setAlertas, resetEstado } = useLecturas(cargarConfig);
 
   // ✅ return condicional AQUÍ, después de todos los hooks
   if (!usuarioActual) return <Login onLogin={setUsuarioActual} />;
@@ -58,10 +58,11 @@ function App() {
           try {
             await fetch(`${BASE}/logout`, { method: "POST" });
           } catch {}
+          resetEstado();          // ← limpiar historial en memoria
           setUsuarioActual(null);
           setPacienteActual(null);
           setTab("paciente");
-        }}     
+        }}   
       />
 
       <main style={{ position: "relative", zIndex: 1, padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
