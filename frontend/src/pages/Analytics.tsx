@@ -22,7 +22,7 @@ function analizarFlujo(historial: DatosSuero[], pesoActual: number, config: { pe
   if (!historial.length) return null;
 
   // Usar los últimos 10 puntos para calcular tendencia
-  const ultimos = historial.slice(-10);  // ← últimos 30 segundos reales
+  const ultimos = historial.slice(-30);  // ← últimos 30 segundos reales
   const pesos = ultimos.map(p => p.peso);
   const rangoRuido = Math.max(...pesos) - Math.min(...pesos);  // ← max - min
   if (rangoRuido <= 5) { /* ESTABLE */ }
