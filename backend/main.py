@@ -11,7 +11,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -21,6 +21,7 @@ from models import Suero, Vitales, Alerta, Config, Usuario, Paciente
 from mqtt_client import MQTTManager
 from telegram_bot import polling
 from email_service import enviar_email_familiar
+
 
 mqtt_manager = MQTTManager()
 
@@ -480,7 +481,7 @@ class PacienteRequest(BaseModel):
     contacto_relacion: str = ""
 
 @app.get("/pacientes")
-def get_pacientes(solo_activos: bool = True, doctor_id: int | None = None):
+def get_pacientes(solo_activos: bool = True, doctor_id: int | None = Query(None)):
     db = SessionLocal()
     try:
         q = db.query(Paciente)
