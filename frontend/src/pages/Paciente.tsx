@@ -19,7 +19,8 @@ interface Props {
   alertas?:                Alerta[];
   onPacienteSeleccionado?: (p: PacienteDB) => void;
   usuarioActual?:          UsuarioLogin | null;
-  pacienteActual?:         PacienteDB | null;   // ← agregar esta línea
+  pacienteActual?:         PacienteDB | null;
+  configActual?:           { peso_alerta: number; peso_critico: number };  // ← agregar
 }
 
 const Campo = ({ label, valor, icon }: { label: string; valor?: string; icon?: React.ReactNode }) => (
@@ -40,8 +41,9 @@ const TopBar = ({ color }: { color: string }) => (
   <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,transparent,${color},transparent)` }}/>
 );
 
-const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual, pacienteActual }: Props) => {
-  if (!live) return null;
+const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual, pacienteActual,
+  configActual = { peso_alerta: 150, peso_critico: 100 }  // ← agregar con default
+}: Props) => {  if (!live) return null;
 
   const [enviando,  setEnviando]  = useState(false);
   const [bombaLocal, setBombaLocal] = useState<boolean | null>(null); // null = usa live.bomba
@@ -51,7 +53,7 @@ const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual, p
   const [enviandoEmail, setEnviandoEmail] = useState(false);
   const [emailOk,    setEmailOk]          = useState<string | null>(null);
 
-  const fluidoStatus = live.peso <= 100 ? "critical" : live.peso <= 150 ? "warn" : "ok";
+  const fluidoStatus = live.peso <= configActual.peso_critico ? "critical" : live.peso <= configActual.peso_alerta ? "warn" : "ok";
   const bombaOn      = bombaLocal !== null ? bombaLocal : live.bomba;
   const estadoBomba  = bombaOn ? "AUTO — Bomba activa por ESP32" : "STANDBY — Bomba en espera";
   const codigoPaciente = pacienteActual
@@ -219,10 +221,10 @@ const Paciente = ({ live, alertas = [], onPacienteSeleccionado, usuarioActual, p
                 </div>
                 <div style={{ marginTop: 7, fontSize: 10, color: "#4b5563", display: "flex", gap: 12 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <AlertTriangle size={10} color="#f59e0b"/> Advertencia: 150 ml
+                    <AlertTriangle size={10} color="#f59e0b"/> Advertencia: {configActual.peso_alerta} ml
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <Activity size={10} color="#ef4444"/> Bomba ON: 100 ml
+                    <Activity size={10} color="#ef4444"/> Bomba ON: {configActual.peso_critico} ml
                   </span>
                 </div>
               </div>

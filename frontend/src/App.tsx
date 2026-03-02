@@ -65,7 +65,16 @@ function App() {
       <main style={{ position: "relative", zIndex: 1, padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
         {tab === "overview"  && <Monitor       live={live} historialSuero={historialSuero} historialVitales={historialVitales} />}
         {tab === "analytics" && <Analytics live={live} historialVitales={historialVitales} historialSuero={historialSuero} config={config} />}
-        {tab === "paciente" && (<Paciente  live={live} alertas={alertas} usuarioActual={usuarioActual} pacienteActual={pacienteActual} onPacienteSeleccionado={(p) => { setPacienteActual(p); setTab("paciente");}} />)}
+        {tab === "paciente" && (
+          <Paciente
+            live={live}
+            alertas={alertas}
+            usuarioActual={usuarioActual}
+            pacienteActual={pacienteActual}
+            configActual={config}
+            onPacienteSeleccionado={(p) => { setPacienteActual(p); setTab("paciente"); }}
+          />
+        )}
         {tab === "alertas"   && <Alertas       alertas={alertas} limpiarAlertas={() => setAlertas([])} />}
         {tab === "config" && <Config usuarioActual={usuarioActual} configActual={config} onConfigGuardada={cargarConfig} />}
         {tab === "admin" && esAdmin && <Administracion usuarioActual={usuarioActual} />}
