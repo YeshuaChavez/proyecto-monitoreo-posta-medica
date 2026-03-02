@@ -157,7 +157,7 @@ const SelectorPaciente = ({ onPacienteSeleccionado, pacienteActual, usuarioActua
             }}
           >
             <RefreshCw size={13} />
-            Cambiar paciente
+            Seleccionar
             <ChevronDown size={13} style={{ transform: abierto ? "rotate(180deg)" : "none", transition: "0.2s" }} />
           </button>
         </div>
