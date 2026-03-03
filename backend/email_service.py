@@ -90,8 +90,6 @@ def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | No
     bg_peso  = "rgba(239,68,68,0.15)"  if estado_peso == "CRÍTICO" else "rgba(245,158,11,0.15)" if estado_peso == "BAJO" else "rgba(16,185,129,0.12)"
     txt_peso = "#ef4444" if estado_peso == "CRÍTICO" else "#f59e0b" if estado_peso == "BAJO" else "#10b981"
 
-    hay_alertas_criticas = bool(alertas_clinicas)
-
     # Bloque alertas — solo clínicas
     bloque_alertas = ""
     if alertas_clinicas:
@@ -109,9 +107,10 @@ def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | No
         }
         filas = ""
         for a in alertas_clinicas:
-            tipo = a.get("tipo", "")
-            em   = iconos.get(tipo, "⚠️")
-            desc = descripciones.get(tipo, a.get("mensaje", ""))
+            tipo      = a.get("tipo", "")
+            em        = iconos.get(tipo, "⚠️")
+            desc      = descripciones.get(tipo, a.get("mensaje", ""))
+            timestamp = a.get("timestamp", "—")
             filas += f"""
             <tr>
               <td style="padding:12px 14px;border-bottom:1px solid #1a2235;font-size:22px;width:44px;vertical-align:middle">{em}</td>
@@ -119,14 +118,27 @@ def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | No
                 <span style="color:#ef4444;font-size:12px;font-weight:700;font-family:monospace">{tipo.replace('_',' ')}</span><br>
                 <span style="color:#cbd5e1;font-size:12px">{desc}</span>
               </td>
+              <td style="padding:12px 14px;border-bottom:1px solid #1a2235;vertical-align:middle;text-align:right;white-space:nowrap">
+                <span style="color:#6b7280;font-size:10px;font-family:monospace">{timestamp}</span>
+              </td>
             </tr>"""
+
         bloque_alertas = f"""
         <div style="margin-bottom:28px">
           <p style="color:#94a3b8;font-size:10px;font-family:monospace;letter-spacing:0.14em;margin:0 0 10px;text-transform:uppercase">
             🩺 Alertas Clínicas Detectadas
           </p>
           <div style="background:#0a1020;border:1px solid rgba(239,68,68,0.3);border-left:3px solid #ef4444;border-radius:12px;overflow:hidden">
-            <table width="100%" cellpadding="0" cellspacing="0">{filas}</table>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <thead>
+                <tr>
+                  <th style="padding:8px 14px;font-size:9px;color:#4b5563;font-family:monospace;font-weight:600;text-align:left;border-bottom:1px solid #1a2235;width:44px"></th>
+                  <th style="padding:8px 14px;font-size:9px;color:#4b5563;font-family:monospace;font-weight:600;text-align:left;border-bottom:1px solid #1a2235">DESCRIPCIÓN</th>
+                  <th style="padding:8px 14px;font-size:9px;color:#4b5563;font-family:monospace;font-weight:600;text-align:right;border-bottom:1px solid #1a2235;white-space:nowrap">FECHA / HORA</th>
+                </tr>
+              </thead>
+              <tbody>{filas}</tbody>
+            </table>
           </div>
           <p style="color:#6b7280;font-size:10px;margin:8px 0 0;font-family:monospace">
             ⚠️ Por favor comuníquese con el personal médico de guardia.
@@ -179,8 +191,7 @@ def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | No
       CONSULTORIO GENERAL
     </p>
     <p style="color:#374151;font-size:11px;margin:8px 0 0;font-family:monospace">{hora}</p>
-    ""  
-</div>
+  </div>
 
   <!-- DATOS PACIENTE -->
   <div style="background:#0d1628;border:1px solid rgba(0,229,255,0.15);border-radius:14px;
@@ -237,7 +248,7 @@ def _construir_html(payload: dict, alertas: list, hora: str, paciente: dict | No
           <div style="color:#4b5563;font-size:10px;margin:4px 0 10px">ml</div>
           <div style="padding:3px 10px;border-radius:99px;font-size:9px;font-weight:700;font-family:monospace;
                       display:inline-block;background:{bg_peso};color:{txt_peso}">{estado_peso}</div>
-          <div style="margin-top:8px;color:#374151;font-size:9px;font-family:monospace">Crítico: &lt; 100ml</div>
+          <div style="margin-top:8px;color:#374151;font-size:9px;font-family:monospace">Crítico: &lt; 100 ml</div>
         </div>
       </td>
     </tr>
@@ -377,7 +388,7 @@ def _generar_pdf(payload: dict, alertas: list, paciente: dict | None = None) -> 
         ["Signo Vital",    "Valor",                         "Unidad", "Estado",     "Rango Normal"],
         ["Frec. Cardíaca", str(fc)   if fc   > 0 else "—", "bpm",    estado_fc,    "60 – 100 bpm"],
         ["Saturación O₂",  str(spo2) if spo2 > 0 else "—", "%",      estado_spo2,  "≥ 95%"],
-        ["Fluido IV",      f"{peso:.1f}",                  "ml",      estado_peso,  "≥ 150ml OK"],
+        ["Fluido IV",      f"{peso:.1f}",                  "ml",     estado_peso,  "≥ 150 ml OK"],
     ], colWidths=[1.8*inch, 1.2*inch, 0.8*inch, 1.2*inch, 1.5*inch])
     t_vitales.setStyle(TableStyle([
         ("BACKGROUND",     (0, 0), (-1,  0), azul_osc),
@@ -397,27 +408,31 @@ def _generar_pdf(payload: dict, alertas: list, paciente: dict | None = None) -> 
     ]))
     elementos += [t_vitales, Spacer(1, 0.2*inch)]
 
-    # Tabla alertas clínicas — solo FC y SpO2, sin bomba ni suero
+    # Tabla alertas clínicas — con columna Fecha/Hora
     if alertas_clinicas:
-        elementos.append(Paragraph("▸ Alertas Clínicas Detectadas", seccion_s))
+        elementos.append(Paragraph("▸ Historial de Alertas Clínicas", seccion_s))
         descripciones = {
             "FC_ALTA":     "Taquicardia — frecuencia cardíaca elevada",
             "FC_BAJA":     "Bradicardia — frecuencia cardíaca baja",
             "SPO2_BAJA":   "Saturación de oxígeno por debajo del rango normal",
             "SPO2_CRITICA":"Saturación de oxígeno en nivel crítico",
         }
-        t_alertas = [["Tipo", "Descripción"]]
+        t_alertas = [["Tipo", "Descripción", "Fecha / Hora"]]
         for a in alertas_clinicas:
-            tipo = a.get("tipo", "")
-            desc = descripciones.get(tipo, a.get("mensaje", ""))
-            t_alertas.append([tipo.replace("_", " "), desc])
-        ta = Table(t_alertas, colWidths=[1.8*inch, 4.7*inch])
+            tipo      = a.get("tipo", "")
+            desc      = descripciones.get(tipo, a.get("mensaje", ""))
+            timestamp = str(a.get("timestamp", "—"))
+            t_alertas.append([tipo.replace("_", " "), desc, timestamp])
+        ta = Table(t_alertas, colWidths=[1.5*inch, 3.0*inch, 2.0*inch])
         ta.setStyle(TableStyle([
             ("BACKGROUND",     (0, 0), (-1,  0), colors.HexColor("#7f1d1d")),
             ("TEXTCOLOR",      (0, 0), (-1,  0), colors.white),
             ("FONTNAME",       (0, 0), (-1,  0), "Helvetica-Bold"),
             ("FONTSIZE",       (0, 0), (-1, -1), 9),
-            ("ALIGN",          (0, 0), (-1, -1), "LEFT"),
+            ("ALIGN",          (0, 0), (-1,  0), "CENTER"),
+            ("ALIGN",          (0, 1), ( 0, -1), "LEFT"),
+            ("ALIGN",          (1, 1), ( 1, -1), "LEFT"),
+            ("ALIGN",          (2, 0), ( 2, -1), "CENTER"),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#fff1f2"), colors.white]),
             ("GRID",           (0, 0), (-1, -1), 0.4, colors.HexColor("#fecaca")),
             ("PADDING",        (0, 0), (-1, -1), 7),
