@@ -1,4 +1,4 @@
-# 🏥 Sistema de Monitoreo — Posta Médica
+# Sistema de Monitoreo — Posta Médica
 
 > Plataforma web full-stack para el monitoreo en tiempo real de indicadores de atención en postas médicas. Desarrollada con **TypeScript + React** en el frontend y **Python** en el backend, con despliegue en la nube.
 
