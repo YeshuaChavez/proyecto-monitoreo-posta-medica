@@ -21,7 +21,7 @@ Este sistema permite registrar, visualizar y hacer seguimiento de métricas clav
 
 ---
 
-## 🛠️ Stack Tecnológico
+## Stack Tecnológico
 
 ### Frontend
 | Tecnología | Uso |
@@ -124,6 +124,3 @@ Este proyecto fue desarrollado con fines académicos y de portafolio.
 
 ---
 
-<div align="center">
-  <sub>Hecho con ❤️ en Perú 🇵🇪</sub>
-</div>
