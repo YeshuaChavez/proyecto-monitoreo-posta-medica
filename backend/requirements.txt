@@ -1,0 +1,11 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+aiomqtt==2.3.0
+sqlalchemy==2.0.30
+pymysql==1.1.1
+cryptography==42.0.7
+pydantic==2.7.1
+python-dotenv==1.0.1
+reportlab==4.1.0
+resend==2.4.0
+aiohttp==3.9.5
