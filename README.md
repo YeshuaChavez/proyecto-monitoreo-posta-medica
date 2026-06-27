@@ -86,12 +86,12 @@ Escalamiento automático que previene spam:
 
 | Alerta | Condición | Nivel |
 |--------|-----------|-------|
-| `SUERO_BAJO` | < 150 ml | ⚠️ Advertencia |
-| `SUERO_CRITICO` | < 100 ml | 🚨 Crítico + activa bomba |
-| `FC_ALTA` | > 100 bpm | ⚠️ Taquicardia |
-| `FC_BAJA` | < 60 bpm | ⚠️ Bradicardia |
-| `SPO2_BAJA` | < 95 % | ⚠️ Hipoxia |
-| `SPO2_CRITICA` | < 90 % | 🚨 Crítico |
+| `SUERO_BAJO` | < 150 ml | Advertencia |
+| `SUERO_CRITICO` | < 100 ml | Crítico + activa bomba |
+| `FC_ALTA` | > 100 bpm | Taquicardia |
+| `FC_BAJA` | < 60 bpm | Bradicardia |
+| `SPO2_BAJA` | < 95 % | Hipoxia |
+| `SPO2_CRITICA` | < 90 % | Crítico |
 
 - Intervalo mínimo de 5 s entre alertas Telegram (anti-spam)
 - Registro completo con timestamp, valor y paciente en MySQL
@@ -272,8 +272,3 @@ npm run dev
 - **Aislamiento multi-paciente**: Cada dato lleva `paciente_id`; el WebSocket filtra por paciente activo
 - **Activación automática de bomba**: Cuando el suero llega a nivel crítico, la bomba se activa sin intervención humana
 
----
-
-## Autores
-
-Desarrollado como proyecto final de la asignatura de **Ingeniería de Software** — UNMSM FISI · 2026
