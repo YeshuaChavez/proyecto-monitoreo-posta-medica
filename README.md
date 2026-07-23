@@ -3,13 +3,6 @@
 > Proyecto de Ingeniería de Software · UNMSM FISI 2026  
 > Monitoreo en tiempo real de signos vitales y suero intravenoso para consultorios médicos
 
-[![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Railway-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vercel-61DAFB?style=flat-square&logo=react)](https://react.dev/)
-[![Hardware](https://img.shields.io/badge/Hardware-ESP32%20%2B%20MQTT-E7352C?style=flat-square&logo=espressif)](https://www.espressif.com/)
-[![Database](https://img.shields.io/badge/Database-MySQL%20%40%20Railway-4479A1?style=flat-square&logo=mysql)](https://www.mysql.com/)
-
----
-
 ## Descripción
 
 Sistema IoT end-to-end que conecta sensores físicos en una posta médica con un dashboard web en tiempo real. El ESP32 captura frecuencia cardíaca, saturación de oxígeno y nivel de suero IV, los publica vía MQTT, y el backend los procesa, genera alertas automáticas y los retransmite por WebSocket al frontend. El personal médico puede visualizar, controlar y recibir notificaciones desde cualquier dispositivo.
