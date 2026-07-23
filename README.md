@@ -1,8 +1,5 @@
 # Sistema de Monitoreo IoT — Posta Médica
 
-> Proyecto de Ingeniería de Software · UNMSM FISI 2026  
-> Monitoreo en tiempo real de signos vitales y suero intravenoso para consultorios médicos
-
 ## Descripción
 
 Sistema IoT end-to-end que conecta sensores físicos en una posta médica con un dashboard web en tiempo real. El ESP32 captura frecuencia cardíaca, saturación de oxígeno y nivel de suero IV, los publica vía MQTT, y el backend los procesa, genera alertas automáticas y los retransmite por WebSocket al frontend. El personal médico puede visualizar, controlar y recibir notificaciones desde cualquier dispositivo.
